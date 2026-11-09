@@ -20,8 +20,13 @@ def _cmd_evento(args) -> None:
     result = verify_event(cfg, start, end, models=args.modelos)
     out_dir = Path(args.saida or cfg.paths["work_dir"] / "eventos" / f"{start}_{end}")
     out_dir.mkdir(parents=True, exist_ok=True)
-    result.scores.to_csv(out_dir / "metricas.csv", index=False, encoding="utf-8")
-    print(f"Métricas salvas em {out_dir / 'metricas.csv'}")
+    from tempestas.report.docx_report import build_event_report
+
+    report = build_event_report(
+        result, out_dir / f"Tempestas_evento_{start:%Y%m%d}_{end:%Y%m%d}.docx",
+        lead=args.antecedencia, threshold=args.limiar,
+    )
+    print(f"Relatório: {report}\nMétricas: {report.with_suffix('.csv')}")
     if result.skipped:
         print("Fontes ignoradas:")
         for k, v in result.skipped.items():
@@ -58,6 +63,8 @@ def main(argv: list[str] | None = None) -> None:
     ev.add_argument("--fim", required=True, help="último dia (AAAA-MM-DD)")
     ev.add_argument("--modelos", nargs="*", help="subconjunto de modelos")
     ev.add_argument("--saida", help="pasta de saída")
+    ev.add_argument("--antecedencia", type=int, default=1, help="antecedência (dias) usada nos mapas e tabelas")
+    ev.add_argument("--limiar", type=float, default=50.0, help="limiar (mm no período) das métricas categóricas")
     ev.set_defaults(func=_cmd_evento)
 
     bx = sub.add_parser("baixar", help="atualiza ERA5/ERA5-Land, METAR e INMET")

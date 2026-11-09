@@ -22,6 +22,15 @@ PRECIP_LEVELS = [0, 5, 10, 25, 50, 75, 100, 150, 200, 300]
 DIFF_LEVELS = [-150, -100, -50, -25, -10, 10, 25, 50, 100, 150]
 INK = "#1f2328"
 MUTED = "#6e7781"
+# Cor fixa por modelo (a cor segue o modelo, nunca a posição na lista)
+MODEL_COLORS = {
+    "GEFS": "#2a6fdb",
+    "IFS": "#e0782a",
+    "AIFS": "#2a9d8f",
+    "ICON": "#9b5de5",
+    "CPT-WRF": "#c9184a",
+    "CHIRPS-GEFS": "#6c757d",
+}
 
 
 def _outline_lines(vector_path: str | Path | None) -> list[np.ndarray]:
@@ -115,10 +124,9 @@ def skill_by_lead(scores, threshold: float, observed: str, metric: str, out_path
     """Linha por modelo: métrica × antecedência (dias), para um limiar e um observado."""
     sub = scores[(scores.threshold_mm == threshold) & (scores.observed == observed)]
     fig, ax = plt.subplots(figsize=(6, 3.4))
-    colors = ["#2a6fdb", "#e0782a", "#2a9d8f", "#9b5de5", "#c9184a", "#6c757d"]
-    for k, (model, g) in enumerate(sub.groupby("model", sort=False)):
+    for model, g in sub.groupby("model", sort=False):
         g = g.sort_values("lead_start")
-        ax.plot(g.lead_start, g[metric], lw=2, marker="o", ms=4, color=colors[k % len(colors)], label=model)
+        ax.plot(g.lead_start, g[metric], lw=2, marker="o", ms=4, color=MODEL_COLORS.get(model, INK), label=model)
     ax.set_xlabel("Antecedência do início do evento (dias)", color=MUTED, fontsize=8)
     ax.set_ylabel(metric.upper(), color=MUTED, fontsize=8)
     ax.set_title(f"{metric.upper()} para ≥ {threshold:g} mm × {observed}", loc="left", fontsize=10, color=INK)
