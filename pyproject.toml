@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tempestas"
+version = "0.1.0"
+description = "Verificação retrospectiva de eventos extremos de chuva: previsto × observado"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "pandas",
+  "xarray",
+  "scipy",
+  "netCDF4",
+  "pyyaml",
+]
+
+[project.optional-dependencies]
+mapas = ["geopandas", "shapely>=2", "matplotlib"]
+relatorio = ["python-docx", "matplotlib"]
+download = ["cdsapi", "requests"]
+dev = ["pytest"]
+
+[project.scripts]
+tempestas = "tempestas.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["tempestas*"]
+
+[tool.setuptools.package-data]
+tempestas = ["../config/*.yaml"]

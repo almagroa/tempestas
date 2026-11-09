@@ -1,0 +1,78 @@
+from datetime import date
+
+import numpy as np
+import pandas as pd
+import pytest
+import xarray as xr
+
+from tempestas.config import Domain, load_config
+from tempestas.io.forecasts import forecast_for_period
+from tempestas.io.standardize import regrid, standardize, target_grid
+from tempestas.verify.metrics import categorical, continuous
+
+DOM = Domain("teste", -34.0, -27.0, -58.0, -49.0)
+
+
+def _field(lat, lon, times, value, lon360=False, lat_desc=False, units="mm"):
+    lat = np.array(lat)[::-1] if lat_desc else np.array(lat)
+    lon = np.array(lon) % 360 if lon360 else np.array(lon)
+    data = np.full((len(times), lat.size, lon.size), value, dtype="float32")
+    return xr.DataArray(data, coords={"time": times, "latitude": lat, "longitude": lon},
+                        dims=("time", "latitude", "longitude"), attrs={"units": units})
+
+
+def test_standardize_conventions():
+    times = pd.date_range("2026-11-03 23:59:59", periods=2, freq="D")
+    da = _field(np.arange(-36, -25, 0.25), np.arange(-60, -47, 0.25), times, 0.01, lon360=True, lat_desc=True, units="m")
+    out = standardize(da, domain=DOM)
+    assert out.dims == ("time", "lat", "lon")
+    assert float(out.lon.min()) >= -58 and float(out.lon.max()) <= -49
+    assert np.all(np.diff(out.lat) > 0)
+    assert np.allclose(out.values, 10.0)  # m -> mm
+    assert pd.Timestamp(out.time.values[0]) == pd.Timestamp("2026-11-03")
+
+
+def test_regrid_coarsen_preserves_mean():
+    lats, lons = target_grid(DOM, 0.1)
+    fine = xr.DataArray(np.random.default_rng(0).gamma(1, 10, (200, 260)).astype("float32"),
+                        coords={"lat": np.linspace(-34.5, -26.5, 200), "lon": np.linspace(-58.5, -48.5, 260)},
+                        dims=("lat", "lon"))
+    out = regrid(fine, lats, lons)
+    assert out.shape == (lats.size, lons.size)
+    inner = fine.sel(lat=slice(-34, -27), lon=slice(-58, -49))
+    assert abs(float(out.mean()) - float(inner.mean())) < 0.5
+
+
+def test_metrics_perfect_and_known():
+    ob = xr.DataArray(np.array([[0, 30], [60, 120]], dtype=float), dims=("lat", "lon"))
+    c = continuous(ob, ob)
+    assert c["bias_mm"] == 0 and c["rmse"] == 0
+    fc = xr.DataArray(np.array([[30, 0], [60, 10]], dtype=float), dims=("lat", "lon"))
+    cat = categorical(fc, ob, 25)
+    # obs>=25: (0,1),(1,0),(1,1); fc>=25: (0,0),(1,0)
+    assert (cat["hits"], cat["misses"], cat["false_alarms"]) == (1, 2, 1)
+    assert cat["pod"] == pytest.approx(1 / 3)
+    assert cat["far"] == pytest.approx(0.5)
+    assert cat["csi"] == pytest.approx(0.25)
+
+
+def test_forecast_for_period(tmp_path):
+    cfg = load_config(overrides={"paths": {"forecast_root": str(tmp_path)}})
+    lat, lon = np.arange(-35, -26, 0.25), np.arange(-59, -48, 0.25)
+    for init in ("2026-11-03", "2026-11-04", "2026-11-06"):
+        times = pd.date_range(f"{init} 23:59:59", periods=7, freq="D")
+        d = tmp_path / "ICON" / init
+        d.mkdir(parents=True)
+        (_field(lat, lon, times, 5.0).cumsum("time")).to_dataset(name="tp").to_netcdf(d / "icon_forecast.nc")
+    out = forecast_for_period(cfg, "ICON", date(2026, 11, 6), date(2026, 11, 8), max_lead=7)
+    assert list(out.lead_start.values) == [4, 3, 1]
+    assert np.allclose(out.values, 15.0)
+
+
+def test_deaccumulate():
+    from tempestas.io.forecasts import deaccumulate
+    times = pd.date_range("2026-11-03", periods=3, freq="D")
+    da = xr.DataArray(np.array([2.0, 5.0, 5.0])[:, None, None] * np.ones((3, 2, 2)),
+                      coords={"time": times, "lat": [0, 1], "lon": [0, 1]}, dims=("time", "lat", "lon"))
+    out = deaccumulate(da)
+    assert np.allclose(out.isel(lat=0, lon=0).values, [2, 3, 0])

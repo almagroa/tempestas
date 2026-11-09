@@ -1,0 +1,65 @@
+# Configuração do Tempestas
+# Caminhos na máquina de processamento (HEROS_001). As pastas de origem são só leitura.
+
+paths:
+  forecast_root: "E:/"            # cada modelo em E:/<pasta>/<YYYY-MM-DD>/<arquivo>
+  imerg_root: "E:/IMERG"          # IMERG_BR_YYYY-MM.nc
+  inmet_root: "E:/INMET"
+  era5land_root: "E:/ERA5-Land_BR"
+  work_dir: "E:/tempestas"        # cache, saídas e relatórios (única pasta com escrita)
+
+# Domínio de análise: Rio Grande do Sul (com folga de 0,5°)
+domain:
+  name: "Rio Grande do Sul"
+  lat_min: -34.3
+  lat_max: -26.7
+  lon_min: -58.1
+  lon_max: -49.2
+
+models:
+  GEFS:
+    folder: GFS
+    file: ncep_gefs_forecast.nc
+    var: APCP_surface
+    units: mm
+    accumulated: true   # acumulado desde o início da rodada
+  IFS:
+    folder: IFS
+    file: ifs_forecast.nc
+    var: tp
+    units: m           # convertido para mm na leitura
+    accumulated: true   # acumulado desde o início da rodada
+  AIFS:
+    folder: AIFS
+    file: aifs_forecast.nc
+    var: tp
+    units: mm
+    accumulated: true   # acumulado desde o início da rodada
+  ICON:
+    folder: ICON
+    file: icon_forecast.nc
+    var: tp
+    units: mm
+    accumulated: true   # acumulado desde o início da rodada
+  CPT-WRF:
+    folder: CPT-WRF
+    file: cptwrf_forecast.nc
+    var: tp
+    units: mm
+    accumulated: true   # acumulado desde o início da rodada
+  CHIRPS-GEFS:
+    folder: CHIRPS-GEFS
+    file: "CHIRPS-GEFS_{date}_BR.nc"
+    var: pr
+    units: mm
+    accumulated: false  # já vem em totais diários
+
+observed:
+  IMERG:
+    file: "IMERG_BR_{yyyymm}.nc"
+    var: precipitation
+
+verification:
+  grid: 0.1                       # grade comum (graus); tudo é reamostrado para ela
+  thresholds_mm_day: [10, 25, 50, 100]
+  lead_days: [1, 2, 3, 5, 7, 10, 15]
