@@ -16,6 +16,9 @@ domain:
   lon_min: -58.1
   lon_max: -49.2
 
+# Regiões de análise (GeoJSON com campo 'regiao'). Vazio = regiões hidrográficas do RS embutidas no pacote.
+regions_vector: null
+
 models:
   GEFS:
     folder: GFS
@@ -61,5 +64,5 @@ observed:
 
 verification:
   grid: 0.1                       # grade comum (graus); tudo é reamostrado para ela
-  thresholds_mm_day: [10, 25, 50, 100]
+  thresholds_mm: [10, 25, 50, 100]   # aplicados ao acumulado do período analisado
   lead_days: [1, 2, 3, 5, 7, 10, 15]
