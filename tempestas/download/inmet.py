@@ -126,7 +126,10 @@ def _api_get(path: str, token: str | None, timeout: int = 120):
     if r.status_code == 204:
         return []
     r.raise_for_status()
-    return r.json()
+    try:
+        return r.json()
+    except ValueError:
+        raise RuntimeError(f"API do INMET não devolveu JSON: {r.text[:200]!r}") from None
 
 
 def api_stations(uf: str = "RS", token: str | None = None) -> pd.DataFrame:
@@ -135,7 +138,11 @@ def api_stations(uf: str = "RS", token: str | None = None) -> pd.DataFrame:
 
     r = requests.get(f"{API_BASE}/estacoes/T", timeout=120)
     r.raise_for_status()
-    st = pd.DataFrame(r.json())
+    try:
+        payload = r.json()
+    except ValueError:
+        raise RuntimeError(f"API do INMET não devolveu JSON: {r.text[:200]!r}") from None
+    st = pd.DataFrame(payload)
     return st[st["SG_ESTADO"] == uf]
 
 
