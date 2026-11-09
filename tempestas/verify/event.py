@@ -13,7 +13,8 @@ from tempestas.io.forecasts import forecast_for_period
 from tempestas.io.observed import observed_total
 from tempestas.io.standardize import regrid, target_grid
 from tempestas.mask import region_masks
-from tempestas.verify.metrics import score_table
+from tempestas.io.stations import inmet_period_totals
+from tempestas.verify.metrics import point_table, score_table
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +28,8 @@ class EventResult:
     masks: dict[str, xr.DataArray]
     scores: pd.DataFrame
     skipped: dict[str, str] = field(default_factory=dict)
+    stations: pd.DataFrame | None = None
+    station_scores: pd.DataFrame | None = None
 
 
 def verify_event(
@@ -65,4 +68,13 @@ def verify_event(
         t.insert(0, "region", region)
         tables.append(t)
     scores = pd.concat(tables, ignore_index=True)
-    return EventResult(start, end, observed, forecasts, masks, scores, skipped)
+
+    stations = station_scores = None
+    try:
+        stations = inmet_period_totals(cfg, start, end)
+        fields = {**forecasts, **{f"{k} (grade)": v for k, v in observed.items()}}
+        station_scores = point_table(stations, fields, thresholds)
+    except (FileNotFoundError, ValueError) as exc:
+        skipped["INMET"] = str(exc)
+        log.warning("estações INMET ignoradas: %s", exc)
+    return EventResult(start, end, observed, forecasts, masks, scores, skipped, stations, station_scores)

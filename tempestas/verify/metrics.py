@@ -87,3 +87,33 @@ def score_table(
                 for thr in thresholds:
                     rows.append({**base, "observed": obs_name, **cont, **categorical(fc, ob, thr, mask)})
     return pd.DataFrame(rows)
+
+
+def point_table(
+    stations: pd.DataFrame,
+    fields: dict[str, xr.DataArray],
+    thresholds: list[float],
+    obs_col: str = "obs_mm",
+) -> pd.DataFrame:
+    """Compara cada campo (modelo por rodada, ou produto em grade) com as estações.
+
+    ``fields[nome]`` é (lat, lon) ou (init, lat, lon). Usa a célula mais próxima
+    de cada estação. Uma linha por campo × rodada × limiar.
+    """
+    lat = xr.DataArray(stations["lat"].values, dims="st")
+    lon = xr.DataArray(stations["lon"].values, dims="st")
+    ob = xr.DataArray(stations[obs_col].values.astype(float), dims="st")
+    rows = []
+    for name, fld in fields.items():
+        sampled = fld.sel(lat=lat, lon=lon, method="nearest")
+        inits = range(sampled.sizes["init"]) if "init" in sampled.dims else [None]
+        for i in inits:
+            fc = sampled.isel(init=i) if i is not None else sampled
+            base = {"source": name, "n_stations": int(np.isfinite(ob).sum())}
+            if i is not None:
+                base["init"] = pd.Timestamp(fc["init"].values).date()
+                base["lead_start"] = int(fc["lead_start"].values)
+            cont = continuous(fc, ob)
+            for thr in thresholds:
+                rows.append({**base, **cont, **categorical(fc, ob, thr)})
+    return pd.DataFrame(rows)

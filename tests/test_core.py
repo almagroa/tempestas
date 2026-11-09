@@ -88,3 +88,14 @@ def test_inmet_parser_and_daily():
     d_utc = daily_precip(df, day_start_hour_utc=0)
     # 00 UTC do dia 1 pertence ao dia 31/12 (incompleto); 02/01 completo
     assert d_utc.set_index("dia").loc["2025-01-02", "n_horas"] == 24
+
+
+def test_point_table_nearest():
+    from tempestas.verify.metrics import point_table
+    lats, lons = np.array([-30.05, -29.95]), np.array([-51.15, -51.05])
+    fld = xr.DataArray([[10.0, 20.0], [30.0, 60.0]], coords={"lat": lats, "lon": lons}, dims=("lat", "lon"))
+    st = pd.DataFrame({"lat": [-30.04, -29.96], "lon": [-51.16, -51.04], "obs_mm": [10.0, 50.0]})
+    t = point_table(st, {"IMERG": fld}, [25])
+    row = t.iloc[0]
+    assert row.n_stations == 2 and row.bias_mm == pytest.approx(5.0)
+    assert (row.hits, row.misses, row.false_alarms) == (1, 0, 0)

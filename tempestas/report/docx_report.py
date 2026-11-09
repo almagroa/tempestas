@@ -159,6 +159,8 @@ def build_event_report(
         "médio (RMSE), correlação espacial e, para limiares de acumulado, probabilidade de detecção (POD), "
         "razão de alarmes falsos (FAR) e índice de sucesso crítico (CSI)."
     )
+    if result.stations is not None:
+        doc.add_paragraph(f"INMET: {OBS_INFO['INMET']}; {len(result.stations)} estações com registro completo.", style="List Bullet")
     if result.skipped:
         doc.add_paragraph("Fontes sem dados para o período: " + "; ".join(result.skipped) + ".")
 
@@ -191,9 +193,39 @@ def build_event_report(
                rows, widths=[1.8, 2.0, 1.3, 1.5, 1.5, 1.4, 1.3, 1.2, 1.1, 1.1, 1.1])
         doc.add_paragraph()
 
+    sec = 6
+    if result.station_scores is not None and not result.station_scores.empty:
+        _heading(doc, f"{sec}. Comparação com estações (INMET)")
+        sec += 1
+        ss = result.station_scores
+        n_st = int(ss["n_stations"].iloc[0])
+        doc.add_paragraph(
+            f"Comparação pontual com {n_st} estações automáticas do INMET com registro completo no período "
+            "(dia UTC). Para cada estação usou-se a célula da grade mais próxima. A linha do produto em grade "
+            "(ex.: IMERG) mostra quanto a própria estimativa por satélite difere dos pluviômetros."
+        )
+        sub = ss[ss.threshold_mm == threshold]
+        if "lead_start" in sub:
+            fc_rows = sub[sub["lead_start"].notna()]
+            fc_rows = fc_rows[fc_rows.groupby("source")["lead_start"].transform(lambda x: x[x >= lead].min() if (x >= lead).any() else -1) == fc_rows["lead_start"]]
+            sub = pd.concat([sub[sub["lead_start"].isna()], fc_rows])
+        rows = [
+            [r.source, "–" if pd.isna(getattr(r, "lead_start", np.nan)) else int(r.lead_start), _num(r.obs_mean, 0),
+             _num(r.fc_mean, 0), _num(r.bias_pct, 0, True), _num(r.rmse, 0), _num(r.corr, 2),
+             _num(r.pod, 2), _num(r.far, 2), _num(r.csi, 2)]
+            for r in sub.itertuples()
+        ]
+        _table(doc, ["Fonte", "Antec. (d)", "Estações (mm)", "Fonte (mm)", "Viés", "RMSE", "Corr.", "POD", "FAR", "CSI"],
+               rows, widths=[2.6, 1.3, 1.7, 1.6, 1.4, 1.3, 1.2, 1.1, 1.1, 1.1])
+        top = result.stations.sort_values("obs_mm", ascending=False).head(10)
+        doc.add_paragraph()
+        doc.add_paragraph("Maiores acumulados observados nas estações:")
+        _table(doc, ["Estação", "Código", "Chuva (mm)"],
+               [[r.estacao.title(), r.codigo, _num(r.obs_mm, 1)] for r in top.itertuples()], widths=[7, 2, 3])
+
     multi = result.scores.groupby("model")["init"].nunique().max() > 1
     if multi:
-        _heading(doc, "6. Desempenho por antecedência")
+        _heading(doc, f"{sec}. Desempenho por antecedência")
         png = skill_by_lead(result.scores[result.scores.region == "RS"], threshold, obs_ref, "csi", fig_dir / "csi_antecedencia.png")
         doc.add_picture(str(png), width=Cm(15))
 
@@ -203,4 +235,7 @@ def build_event_report(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(out_path)
     result.scores.to_csv(out_path.with_suffix(".csv"), index=False, encoding="utf-8-sig")
+    if result.station_scores is not None:
+        result.station_scores.to_csv(out_path.with_name(out_path.stem + "_estacoes.csv"), index=False, encoding="utf-8-sig")
+        result.stations.to_csv(out_path.with_name(out_path.stem + "_estacoes_obs.csv"), index=False, encoding="utf-8-sig")
     return out_path
