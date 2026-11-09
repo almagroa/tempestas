@@ -110,3 +110,88 @@ def daily_precip(df: pd.DataFrame, day_start_hour_utc: int = 12) -> pd.DataFrame
     out = g["precip_mm"].agg(precip_mm="sum", n_horas="count").reset_index()
     out.loc[out["n_horas"] < 22, "precip_mm"] = float("nan")  # dia com falhas
     return out
+
+
+# ---------------------------------------------------------------------------
+# Dados recentes pela API do INMET (o zip do portal atrasa ~1 semana a 1 mês)
+# ---------------------------------------------------------------------------
+API_BASE = "https://apitempo.inmet.gov.br"
+
+
+def _api_get(path: str, token: str | None, timeout: int = 120):
+    import requests
+
+    url = f"{API_BASE}/token{path}/{token}" if token else f"{API_BASE}{path}"
+    r = requests.get(url, timeout=timeout)
+    if r.status_code == 204:
+        return []
+    r.raise_for_status()
+    return r.json()
+
+
+def api_stations(uf: str = "RS", token: str | None = None) -> pd.DataFrame:
+    """Estações automáticas operantes de uma UF."""
+    import requests
+
+    r = requests.get(f"{API_BASE}/estacoes/T", timeout=120)
+    r.raise_for_status()
+    st = pd.DataFrame(r.json())
+    return st[st["SG_ESTADO"] == uf]
+
+
+def api_fetch(start, end, uf: str = "RS", token: str | None = None) -> pd.DataFrame:
+    """Dados horários de todas as estações automáticas da UF entre start e end."""
+    st = api_stations(uf, token)
+    frames = []
+    for code in st["CD_ESTACAO"]:
+        try:
+            data = _api_get(f"/estacao/{start:%Y-%m-%d}/{end:%Y-%m-%d}/{code}", token)
+        except Exception as exc:
+            log.warning("INMET API %s: %s", code, exc)
+            continue
+        if data:
+            frames.append(pd.DataFrame(data))
+    if not frames:
+        return pd.DataFrame()
+    df = pd.concat(frames, ignore_index=True)
+    hour = df["HR_MEDICAO"].astype(str).str.zfill(4)
+    out = pd.DataFrame({
+        "time_utc": pd.to_datetime(df["DT_MEDICAO"] + " " + hour, format="%Y-%m-%d %H%M", utc=True),
+        "precip_mm": pd.to_numeric(df.get("CHUVA"), errors="coerce"),
+        "wind_ms": pd.to_numeric(df.get("VEN_VEL"), errors="coerce"),
+        "gust_ms": pd.to_numeric(df.get("VEN_RAJ"), errors="coerce"),
+        "dir_deg": pd.to_numeric(df.get("VEN_DIR"), errors="coerce"),
+        "codigo": df["CD_ESTACAO"],
+        "estacao": df["DC_NOME"].str.upper(),
+        "uf": df["UF"],
+        "lat": pd.to_numeric(df["VL_LATITUDE"], errors="coerce"),
+        "lon": pd.to_numeric(df["VL_LONGITUDE"], errors="coerce"),
+        "alt": pd.to_numeric(df.get("VL_ALTITUDE"), errors="coerce"),
+    })
+    return out
+
+
+def update_recent(out_root, days: int = 35, uf: str = "RS", token: str | None = None) -> Path:
+    """Completa o CSV do ano corrente com os últimos ``days`` dias da API.
+
+    Junta com o que veio do portal e remove duplicatas (estação × hora).
+    O token (opcional) pode vir da variável de ambiente INMET_TOKEN.
+    """
+    import os
+    from datetime import date, timedelta
+
+    token = token or os.environ.get("INMET_TOKEN")
+    end = date.today()
+    start = end - timedelta(days=days)
+    new = api_fetch(start, end, uf, token)
+    out = Path(out_root) / "INMET" / f"INMET_{uf}_{end.year}.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if out.exists():
+        old = pd.read_csv(out)
+        old["time_utc"] = pd.to_datetime(old["time_utc"], utc=True)
+        new = pd.concat([old, new], ignore_index=True)
+    new = new[new["time_utc"].dt.year == end.year]
+    new = new.drop_duplicates(["codigo", "time_utc"], keep="last").sort_values(["codigo", "time_utc"])
+    new.to_csv(out, index=False)
+    log.info("INMET API: %s atualizado até %s", out, new["time_utc"].max())
+    return out

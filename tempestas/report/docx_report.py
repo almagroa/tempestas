@@ -15,7 +15,8 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Cm, Pt, RGBColor
 
 from tempestas.mask import DEFAULT_REGIONS
-from tempestas.report.maps import event_maps, skill_by_lead, wind_maps
+from tempestas.report.maps import daily_series, event_maps, skill_by_lead, wind_maps
+from tempestas.verify.daily import summarize_by_lead
 from tempestas.verify.event import EventResult
 from tempestas.verify.wind import WindResult
 
@@ -115,6 +116,8 @@ def build_event_report(
     threshold: float = 50.0,
     title: str | None = None,
     wind: WindResult | None = None,
+    daily: pd.DataFrame | None = None,
+    daily_threshold: float = 25.0,
     responsible: str = "André Almagro – Eng. Ambiental, Dr. em Hidrologia – CREA 20072-MS",
 ) -> Path:
     out_path = Path(out_path)
@@ -231,6 +234,24 @@ def build_event_report(
         png = skill_by_lead(result.scores[result.scores.region == "RS"], threshold, obs_ref, "csi", fig_dir / "csi_antecedencia.png")
         doc.add_picture(str(png), width=Cm(15))
 
+    if daily is not None and not daily.empty:
+        _heading(doc, f"{sec}. Verificação dia a dia")
+        sec += 1
+        doc.add_paragraph(
+            "Cada dia do período foi comparado com as previsões emitidas 1, 2, 3, 5 e 7 dias antes. Os acertos, "
+            f"perdas e alarmes falsos (limiar de {daily_threshold:g} mm/dia) foram somados ao longo dos dias; "
+            "o viés compara a média diária prevista e observada no RS."
+        )
+        png = daily_series(daily, fig_dir / "serie_diaria.png", obs_ref, lead=lead)
+        doc.add_picture(str(png), width=Cm(16))
+        summ = summarize_by_lead(daily, "RS", daily_threshold)
+        summ = summ[summ.observed == obs_ref]
+        _table(doc, ["Modelo", "Antec. (d)", "Dias", "Obs. (mm/d)", "Prev. (mm/d)", "Viés", "POD", "FAR", "CSI"],
+               [[r.model, r.lead, r.dias, _num(r.obs_mean, 1), _num(r.fc_mean, 1), _num(r.bias_pct, 0, True),
+                 _num(r.pod, 2), _num(r.far, 2), _num(r.csi, 2)] for r in summ.itertuples()],
+               widths=[2.4, 1.4, 1.1, 1.8, 1.8, 1.4, 1.3, 1.3, 1.3])
+        doc.add_paragraph()
+
     if wind is not None and (wind.grids or wind.stations is not None):
         _heading(doc, f"{sec}. Vento observado")
         sec += 1
@@ -262,4 +283,6 @@ def build_event_report(
     if result.station_scores is not None:
         result.station_scores.to_csv(out_path.with_name(out_path.stem + "_estacoes.csv"), index=False, encoding="utf-8-sig")
         result.stations.to_csv(out_path.with_name(out_path.stem + "_estacoes_obs.csv"), index=False, encoding="utf-8-sig")
+    if daily is not None:
+        daily.to_csv(out_path.with_name(out_path.stem + "_diario.csv"), index=False, encoding="utf-8-sig")
     return out_path

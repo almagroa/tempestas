@@ -23,11 +23,14 @@ def _cmd_evento(args) -> None:
     from tempestas.report.docx_report import build_event_report
     from tempestas.verify.wind import characterize_wind
 
+    from tempestas.verify.daily import daily_verification
+
     wind = characterize_wind(cfg, start, end)
+    daily = daily_verification(cfg, start, end)
 
     report = build_event_report(
         result, out_dir / f"Tempestas_evento_{start:%Y%m%d}_{end:%Y%m%d}.docx",
-        lead=args.antecedencia, threshold=args.limiar, wind=wind,
+        lead=args.antecedencia, threshold=args.limiar, wind=wind, daily=daily,
     )
     print(f"Relatório: {report}\nMétricas: {report.with_suffix('.csv')}")
     if result.skipped:
@@ -51,7 +54,14 @@ def _cmd_baixar(args) -> None:
             metar.update_month(root, prev.year, prev.month)
     if "inmet" in args.fontes:
         from tempestas.download import inmet
-        inmet.download_year(today.year, root)
+        try:
+            inmet.download_year(today.year, root)
+        except Exception as exc:
+            logging.warning("INMET portal: %s", exc)
+        try:
+            inmet.update_recent(root)  # completa os dias recentes pela API
+        except Exception as exc:
+            logging.warning("INMET API: %s", exc)
     print(f"Downloads concluídos em {root}")
 
 

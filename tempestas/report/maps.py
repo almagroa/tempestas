@@ -162,3 +162,28 @@ def wind_maps(grids: dict[str, xr.DataArray], out_path: str | Path, outline_path
     fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     return out_path
+
+
+def daily_series(daily, out_path, observed: str, lead: int = 1, region: str = "RS") -> Path:
+    """Chuva média diária na região: observado × cada modelo numa antecedência fixa."""
+    d = daily[(daily.region == region) & (daily.observed == observed)]
+    d = d.drop_duplicates(["day", "model", "lead"])
+    fig, ax = plt.subplots(figsize=(7, 3.2))
+    ob = d.drop_duplicates("day").sort_values("day")
+    ax.bar(ob["day"], ob["obs_mean"], color="#c8d6e5", width=0.8, label=f"{observed} (observado)")
+    for model, g in d[d.lead == lead].groupby("model", sort=False):
+        g = g.sort_values("day")
+        ax.plot(g["day"], g["fc_mean"], lw=2, marker="o", ms=4, color=MODEL_COLORS.get(model, INK), label=model)
+    ax.set_ylabel("Chuva média (mm/dia)", color=MUTED, fontsize=8)
+    ax.set_title(f"Chuva diária média – {region} – previsão com antecedência de {lead} dia(s)", loc="left", fontsize=10, color=INK)
+    ax.grid(axis="y", color="#eaeef2", lw=0.6)
+    ax.tick_params(labelsize=7, colors=MUTED)
+    for sp in ("top", "right"):
+        ax.spines[sp].set_visible(False)
+    fig.autofmt_xdate()
+    ax.legend(fontsize=7, frameon=False, ncol=4)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    return out_path
