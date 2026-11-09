@@ -15,8 +15,9 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Cm, Pt, RGBColor
 
 from tempestas.mask import DEFAULT_REGIONS
-from tempestas.report.maps import event_maps, skill_by_lead
+from tempestas.report.maps import event_maps, skill_by_lead, wind_maps
 from tempestas.verify.event import EventResult
+from tempestas.verify.wind import WindResult
 
 MODEL_INFO = {
     "GEFS": "NOAA/NCEP – ensemble GEFS (média), 0,25°, até 16 dias",
@@ -113,6 +114,7 @@ def build_event_report(
     lead: int = 1,
     threshold: float = 50.0,
     title: str | None = None,
+    wind: WindResult | None = None,
     responsible: str = "André Almagro – Eng. Ambiental, Dr. em Hidrologia – CREA 20072-MS",
 ) -> Path:
     out_path = Path(out_path)
@@ -228,6 +230,28 @@ def build_event_report(
         _heading(doc, f"{sec}. Desempenho por antecedência")
         png = skill_by_lead(result.scores[result.scores.region == "RS"], threshold, obs_ref, "csi", fig_dir / "csi_antecedencia.png")
         doc.add_picture(str(png), width=Cm(15))
+
+    if wind is not None and (wind.grids or wind.stations is not None):
+        _heading(doc, f"{sec}. Vento observado")
+        sec += 1
+        doc.add_paragraph(
+            "Caracterização do vento no período a partir de dados observados e de reanálise, sem comparação "
+            "com previsão. ERA5: rajada a 10 m e vento médio horário (0,25°). ERA5-Land: vento médio horário a "
+            "10 m (0,1°). Estações: velocidade horária e rajada máxima do INMET e dos aeroportos (METAR)."
+        )
+        if wind.grids:
+            png = wind_maps(wind.grids, fig_dir / "vento.png", outline_path=DEFAULT_REGIONS,
+                            suptitle=f"Vento máximo de {period}")
+            doc.add_picture(str(png), width=Cm(17))
+        if wind.stations is not None and len(wind.stations):
+            top = wind.stations.head(15)
+            doc.add_paragraph("Maiores rajadas registradas em estações e aeroportos:")
+            _table(doc, ["Rede", "Estação", "Rajada máx. (m/s)", "Rajada (km/h)", "Vento médio máx. (m/s)"],
+                   [[r.rede, str(r.estacao).title(), _num(r.rajada_max_ms, 1), _num(r.rajada_max_ms * 3.6, 0),
+                     _num(r.vento_max_ms, 1)] for r in top.itertuples()],
+                   widths=[1.8, 6.0, 2.8, 2.5, 3.2])
+        if wind.skipped:
+            doc.add_paragraph("Fontes de vento sem dados: " + "; ".join(wind.skipped) + ".")
 
     _heading(doc, "Responsável técnico")
     doc.add_paragraph(f"{responsible}\nHidroNexus Engenharia LTDA – CNPJ 66.628.750/0001-10")

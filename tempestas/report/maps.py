@@ -140,3 +140,25 @@ def skill_by_lead(scores, threshold: float, observed: str, metric: str, out_path
     fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     return out_path
+
+
+WIND_LEVELS = [0, 5, 10, 15, 20, 25, 30, 35, 40]
+
+
+def wind_maps(grids: dict[str, xr.DataArray], out_path: str | Path, outline_path=None, suptitle: str = "") -> Path:
+    """Um painel por campo de vento máximo no período (m/s)."""
+    outline = _outline_lines(outline_path)
+    n = len(grids)
+    fig, axes = plt.subplots(1, n, figsize=(3.2 * n, 3.6), squeeze=False)
+    im = None
+    for ax, (name, da) in zip(axes[0], grids.items()):
+        im = _panel(ax, da, WIND_LEVELS, "Oranges", outline, name)
+    if im is not None:
+        fig.colorbar(im, ax=axes[0].tolist(), shrink=0.8, label="Vento máximo no período (m/s)")
+    if suptitle:
+        fig.suptitle(suptitle, fontsize=11, color=INK, x=0.02, ha="left")
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    return out_path

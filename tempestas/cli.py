@@ -21,10 +21,13 @@ def _cmd_evento(args) -> None:
     out_dir = Path(args.saida or cfg.paths["work_dir"] / "eventos" / f"{start}_{end}")
     out_dir.mkdir(parents=True, exist_ok=True)
     from tempestas.report.docx_report import build_event_report
+    from tempestas.verify.wind import characterize_wind
+
+    wind = characterize_wind(cfg, start, end)
 
     report = build_event_report(
         result, out_dir / f"Tempestas_evento_{start:%Y%m%d}_{end:%Y%m%d}.docx",
-        lead=args.antecedencia, threshold=args.limiar,
+        lead=args.antecedencia, threshold=args.limiar, wind=wind,
     )
     print(f"Relatório: {report}\nMétricas: {report.with_suffix('.csv')}")
     if result.skipped:
