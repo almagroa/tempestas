@@ -14,12 +14,14 @@ dependencies = [
   "scipy",
   "netCDF4",
   "pyyaml",
+  "shapely>=2",
+  "matplotlib",
+  "requests",
 ]
 
 [project.optional-dependencies]
-mapas = ["geopandas", "shapely>=2", "matplotlib"]
-relatorio = ["python-docx", "matplotlib"]
-download = ["cdsapi", "requests"]
+relatorio = ["python-docx"]
+download = ["cdsapi"]
 dev = ["pytest"]
 
 [project.scripts]

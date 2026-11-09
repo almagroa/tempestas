@@ -76,3 +76,15 @@ def test_deaccumulate():
                       coords={"time": times, "lat": [0, 1], "lon": [0, 1]}, dims=("time", "lat", "lon"))
     out = deaccumulate(da)
     assert np.allclose(out.isel(lat=0, lon=0).values, [2, 3, 0])
+
+
+def test_inmet_parser_and_daily():
+    from pathlib import Path
+    from tempestas.download.inmet import daily_precip, parse_csv
+    raw = (Path(__file__).parent / "dados" / "inmet_A801_amostra.csv").read_bytes()
+    meta, df = parse_csv(raw)
+    assert meta["codigo"] == "A801" and meta["uf"] == "RS"
+    assert len(df) == 72 and df["time_utc"].dt.tz is not None
+    d_utc = daily_precip(df, day_start_hour_utc=0)
+    # 00 UTC do dia 1 pertence ao dia 31/12 (incompleto); 02/01 completo
+    assert d_utc.set_index("dia").loc["2025-01-02", "n_horas"] == 24

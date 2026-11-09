@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 import logging
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from tempestas.config import load_config
@@ -28,6 +28,25 @@ def _cmd_evento(args) -> None:
             print(f"  {k}: {v}")
 
 
+def _cmd_baixar(args) -> None:
+    cfg = load_config(args.config)
+    root = Path(args.saida or cfg.paths["work_dir"] / "dados")
+    today = date.today()
+    if "era5" in args.fontes:
+        from tempestas.download import era5
+        era5.update(root, days_back=args.dias)
+    if "metar" in args.fontes:
+        from tempestas.download import metar
+        metar.update_month(root, today.year, today.month)
+        if today.day <= 7:  # fecha o mês anterior
+            prev = (today.replace(day=1) - timedelta(days=1))
+            metar.update_month(root, prev.year, prev.month)
+    if "inmet" in args.fontes:
+        from tempestas.download import inmet
+        inmet.download_year(today.year, root)
+    print(f"Downloads concluídos em {root}")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="tempestas", description="Verificação de eventos extremos de chuva")
     parser.add_argument("--config", help="arquivo YAML de configuração")
@@ -40,6 +59,12 @@ def main(argv: list[str] | None = None) -> None:
     ev.add_argument("--modelos", nargs="*", help="subconjunto de modelos")
     ev.add_argument("--saida", help="pasta de saída")
     ev.set_defaults(func=_cmd_evento)
+
+    bx = sub.add_parser("baixar", help="atualiza ERA5/ERA5-Land, METAR e INMET")
+    bx.add_argument("--fontes", nargs="*", default=["era5", "metar", "inmet"], choices=["era5", "metar", "inmet"])
+    bx.add_argument("--dias", type=int, default=15, help="janela de dias do ERA5 a garantir")
+    bx.add_argument("--saida", help="pasta de dados (padrão: <work_dir>/dados)")
+    bx.set_defaults(func=_cmd_baixar)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(message)s")
