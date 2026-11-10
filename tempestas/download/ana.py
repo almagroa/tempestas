@@ -30,11 +30,37 @@ def _rows(xml_text: str, tag: str) -> list[dict]:
     return out
 
 
-def list_stations(uf: str = "RS", timeout: int = 120) -> pd.DataFrame:
+def _get(url: str, params: dict, timeout: int, tries: int = 3):
+    """GET com novas tentativas e espera crescente (o servidor da ANA cai com frequência)."""
+    import time
+
     import requests
 
-    r = requests.get(f"{WS}/ListaEstacoesTelemetricas", params={"statusEstacoes": "0", "origem": ""}, timeout=timeout)
-    r.raise_for_status()
+    for k in range(tries):
+        try:
+            r = requests.get(url, params=params, timeout=timeout)
+            r.raise_for_status()
+            return r
+        except Exception as exc:
+            if k == tries - 1:
+                raise
+            wait = 30 * 2 ** k
+            log.warning("ANA: %s; nova tentativa em %d s", exc, wait)
+            time.sleep(wait)
+
+
+def list_stations(uf: str = "RS", timeout: int = 120, cache: Path | None = None) -> pd.DataFrame:
+    """Lista de telemétricas da UF. Guarda em ``cache`` e usa o cache se o webservice falhar."""
+    try:
+        r = _get(f"{WS}/ListaEstacoesTelemetricas", {"statusEstacoes": "0", "origem": ""}, timeout)
+    except Exception as exc:
+        if cache is not None and Path(cache).exists():
+            log.warning("ANA: lista de estações indisponível (%s); usando cache %s", exc, cache)
+            return pd.read_csv(cache, dtype=str).assign(
+                Latitude=lambda d: pd.to_numeric(d["Latitude"], errors="coerce"),
+                Longitude=lambda d: pd.to_numeric(d["Longitude"], errors="coerce"),
+            )
+        raise
     df = pd.DataFrame(_rows(r.text, "Table"))
     if df.empty:
         return df
@@ -47,15 +73,15 @@ def list_stations(uf: str = "RS", timeout: int = 120) -> pd.DataFrame:
     if {"Latitude", "Longitude"} <= set(df.columns) and uf == "RS":
         # garante só o RS mesmo quando a lista não traz a UF (caixa do estado com folga)
         df = df[df.Latitude.between(-34.0, -27.0) & df.Longitude.between(-58.0, -49.5)]
+    if cache is not None and not df.empty:
+        Path(cache).parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(cache, index=False)
     return df
 
 
 def fetch_station(code: str, start: date, end: date, timeout: int = 120) -> pd.DataFrame:
-    import requests
-
     params = {"codEstacao": code, "dataInicio": f"{start:%d/%m/%Y}", "dataFim": f"{end:%d/%m/%Y}"}
-    r = requests.get(f"{WS}/DadosHidrometeorologicos", params=params, timeout=timeout)
-    r.raise_for_status()
+    r = _get(f"{WS}/DadosHidrometeorologicos", params, timeout, tries=2)
     df = pd.DataFrame(_rows(r.text, "DadosHidrometereologicos"))
     if df.empty or "Chuva" not in df:
         return pd.DataFrame()
@@ -85,7 +111,7 @@ def update_recent(out_root, days: int = 35, uf: str = "RS") -> Path:
     """Baixa os últimos ``days`` dias de todas as telemétricas da UF e salva por ano."""
     end = date.today()
     start = end - timedelta(days=days)
-    st = list_stations(uf)
+    st = list_stations(uf, cache=Path(out_root) / "ANA" / f"estacoes_{uf}.csv")
     if st.empty:
         raise RuntimeError("lista de estações telemétricas da ANA vazia")
     code_col = next(c for c in st.columns if c.lower().startswith("codestacao") or c.lower() == "codigo")

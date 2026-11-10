@@ -283,16 +283,17 @@ def network_map(inventory, background: xr.DataArray, out_path, bg_name: str = "I
     sc = None
     for net, g in inventory.groupby("rede", sort=False):
         mk = NETWORK_MARKERS.get(net, "D")
-        size = 90 if mk == "*" else 26
+        size = 170 if mk == "*" else 26
+        z = 6 if net == "METAR" else 0  # aeroportos por cima das redes densas
         miss = g[g["obs_mm"].isna()]
         ok = g[g["obs_mm"].notna()]
         if len(miss):
             face = "#f2c94c" if net == "METAR" else "none"
             ax.scatter(miss["lon"], miss["lat"], marker=mk, s=size, facecolors=face,
-                       edgecolors="#6e7781" if net != "METAR" else INK, linewidths=0.8, zorder=3)
+                       edgecolors="#6e7781" if net != "METAR" else INK, linewidths=0.8, zorder=3 + z)
         if len(ok):
             sc = ax.scatter(ok["lon"], ok["lat"], marker=mk, s=size, c=ok["obs_mm"], cmap="Blues", norm=norm,
-                            edgecolors=INK, linewidths=0.5, zorder=4)
+                            edgecolors=INK, linewidths=0.5, zorder=4 + z)
         n_ok, n_all = len(ok), len(g)
         label = f"{net}: {n_all} aeroportos (vento e tempo presente)" if net == "METAR" else f"{net}: {n_ok} de {n_all} com dados completos"
         handles.append(Line2D([], [], marker=mk, ls="", ms=9 if mk == "*" else 6, mfc="#f2c94c" if net == "METAR" else "#9ecae1",

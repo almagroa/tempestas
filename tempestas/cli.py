@@ -41,6 +41,27 @@ def _cmd_evento(args) -> None:
             print(f"  {k}: {v}")
 
 
+def _cmd_mensal(args) -> None:
+    cfg = load_config(args.config)
+    year, month = (int(x) for x in args.mes.split("-"))
+    from tempestas.report.monthly_report import build_monthly_report
+    from tempestas.verify.monthly import verify_month
+
+    res = verify_month(cfg, year, month, models=args.modelos)
+    out_dir = Path(args.saida or cfg.paths["work_dir"] / "mensal" / f"{year}-{month:02d}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    report = build_monthly_report(
+        res, out_dir / f"Tempestas_mensal_{year}{month:02d}.docx",
+        daily_threshold=args.limiar_diario, event_threshold=args.limiar_evento,
+    )
+    print(f"Relatório: {report}")
+    print(f"Eventos detectados: {', '.join(f'{s:%d/%m}–{e:%d/%m}' for s, e in res.events) or 'nenhum'}")
+    if res.skipped:
+        print("Fontes ignoradas:")
+        for k, v in res.skipped.items():
+            print(f"  {k}: {v}")
+
+
 def _cmd_baixar(args) -> None:
     cfg = load_config(args.config)
     root = Path(args.saida or cfg.paths["work_dir"] / "dados")
@@ -99,6 +120,14 @@ def main(argv: list[str] | None = None) -> None:
     ev.add_argument("--antecedencia", type=int, default=1, help="antecedência (dias) usada nos mapas e tabelas")
     ev.add_argument("--limiar", type=float, default=50.0, help="limiar (mm no período) das métricas categóricas")
     ev.set_defaults(func=_cmd_evento)
+
+    me = sub.add_parser("mensal", help="relatório mensal: chuva observada, eventos, desempenho diário e vento")
+    me.add_argument("--mes", required=True, help="mês (AAAA-MM)")
+    me.add_argument("--modelos", nargs="*", help="subconjunto de modelos")
+    me.add_argument("--saida", help="pasta de saída")
+    me.add_argument("--limiar-diario", type=float, default=25.0, help="limiar diário (mm) das métricas categóricas")
+    me.add_argument("--limiar-evento", type=float, default=50.0, help="limiar (mm no evento) das métricas categóricas")
+    me.set_defaults(func=_cmd_mensal)
 
     bx = sub.add_parser("baixar", help="atualiza ERA5/ERA5-Land, METAR e INMET")
     bx.add_argument("--fontes", nargs="*", default=["era5", "metar", "inmet", "ana", "cemaden"], choices=["era5", "metar", "inmet", "ana", "cemaden"])
