@@ -44,6 +44,26 @@ def target_file(out_root: Path, product: str, day: date) -> Path:
     return out_root / product / f"{day:%Y-%m}" / f"{product}_vento_RS_{day:%Y%m%d}.nc"
 
 
+def open_cds(path: str | Path):
+    """Abre a resposta do CDS: NetCDF simples ou ZIP com vários .nc (instant + max), unidos num Dataset."""
+    import tempfile
+    import zipfile
+
+    import xarray as xr
+
+    path = Path(path)
+    if not zipfile.is_zipfile(path):
+        return xr.open_dataset(path).load()
+    parts = []
+    with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory() as tmp:
+        for name in zf.namelist():
+            if name.endswith(".nc"):
+                zf.extract(name, tmp)
+                with xr.open_dataset(Path(tmp) / name) as ds:
+                    parts.append(ds.drop_vars(["expver", "number"], errors="ignore").load())
+    return xr.merge(parts, compat="override", join="outer")
+
+
 def download_days(product: str, days: list[date], out_root: str | Path, overwrite: bool = False) -> list[Path]:
     """Baixa vários dias do MESMO mês num único pedido ao CDS e grava um arquivo por dia.
 
@@ -51,7 +71,6 @@ def download_days(product: str, days: list[date], out_root: str | Path, overwrit
     pedido por dia.
     """
     import cdsapi
-    import xarray as xr
 
     out_root = Path(out_root)
     todo = [d for d in days if overwrite or not target_file(out_root, product, d).exists()]
@@ -75,10 +94,11 @@ def download_days(product: str, days: list[date], out_root: str | Path, overwrit
     }
     chunk = out_root / product / f"{year}-{month:02d}" / f"_pedido_{todo[0]:%Y%m%d}_{todo[-1]:%Y%m%d}.part"
     chunk.parent.mkdir(parents=True, exist_ok=True)
-    cdsapi.Client(quiet=True).retrieve(spec["name"], request, str(chunk))
+    if not chunk.exists():  # reaproveita um pedido já baixado
+        cdsapi.Client(quiet=True).retrieve(spec["name"], request, str(chunk))
 
     written = []
-    with xr.open_dataset(chunk) as ds:
+    with open_cds(chunk) as ds:
         tname = "valid_time" if "valid_time" in ds.dims else "time"
         stamps = ds[tname].dt.floor("D").values
         for d in todo:

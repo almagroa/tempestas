@@ -35,7 +35,9 @@ class WindResult:
 
 
 def _open_hourly(path: Path) -> xr.Dataset:
-    ds = xr.open_dataset(path)
+    from tempestas.download.era5 import open_cds
+
+    ds = open_cds(path)
     for t in _TIME_NAMES:
         if t in ds.dims and t != "time":
             ds = ds.rename({t: "time"})
@@ -72,8 +74,9 @@ def era5_period_max(cfg: Config, product: str, start: date, end: date) -> dict[s
     if "u10" in ds and "v10" in ds:
         speed = np.hypot(ds["u10"], ds["v10"])
         out[f"{product} vento médio máx."] = _standardize_hourly(speed, cfg).max("time").load()
-    if "fg10" in ds:
-        out[f"{product} rajada máx."] = _standardize_hourly(ds["fg10"], cfg).max("time").load()
+    gust = next((v for v in ("fg10", "i10fg", "gust") if v in ds), None)
+    if gust:
+        out[f"{product} rajada máx."] = _standardize_hourly(ds[gust], cfg).max("time").load()
     for k in out:
         out[k].attrs["units"] = "m/s"
     return out
