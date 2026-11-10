@@ -16,6 +16,7 @@ from docx.shared import Cm, Pt, RGBColor
 
 from tempestas.mask import DEFAULT_REGIONS
 from tempestas.report.maps import daily_series, event_maps, network_map, skill_by_lead, station_maps, wind_maps
+from tempestas.verify.wind import ERA5_NOTE, WIND_QC_TEXT
 from tempestas.verify.daily import summarize_by_lead
 from tempestas.verify.event import EventResult
 from tempestas.verify.wind import WindResult
@@ -292,7 +293,8 @@ def build_event_report(
         doc.add_paragraph(
             "Caracterização do vento no período a partir de dados observados e de reanálise, sem comparação "
             "com previsão. ERA5: rajada a 10 m e vento médio horário (0,25°). ERA5-Land: vento médio horário a "
-            "10 m (0,1°). Estações: velocidade horária e rajada máxima do INMET e dos aeroportos (METAR)."
+            "10 m (0,1°). Estações: velocidade horária e rajada máxima do INMET e dos aeroportos (METAR). "
+            + ERA5_NOTE + " " + WIND_QC_TEXT
         )
         if wind.grids:
             png = wind_maps(wind.grids, fig_dir / "vento.png", outline_path=DEFAULT_REGIONS,

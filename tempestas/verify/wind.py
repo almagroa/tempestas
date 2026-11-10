@@ -83,6 +83,34 @@ def era5_period_max(cfg: Config, product: str, start: date, end: date) -> dict[s
     return out
 
 
+WIND_QC_TEXT = (
+    "Controle de qualidade das estações: descartados vento médio acima de 40 m/s, rajada acima de 60 m/s, "
+    "rajada menor que o vento médio da mesma hora e picos isolados de vento médio (acima de 20 m/s com as "
+    "horas vizinhas abaixo da metade). Rajadas convectivas isoladas são mantidas."
+)
+ERA5_NOTE = (
+    "A rajada do ERA5 é uma estimativa da reanálise numa grade de cerca de 30 km e suaviza rajadas convectivas "
+    "locais; por isso fica tipicamente bem abaixo das rajadas medidas nas estações. Os mapas mostram o padrão "
+    "espacial, e os valores pontuais devem ser lidos nas estações."
+)
+
+
+def qc_wind(df: pd.DataFrame, wind: str = "wind_ms", gust: str = "gust_ms", key: str = "codigo") -> tuple[pd.DataFrame, int]:
+    """Controle de qualidade simples do vento horário. Devolve (dados, n de valores descartados)."""
+    d = df.sort_values([key, "time_utc"]).copy()
+    w, g = d[wind].astype(float), d[gust].astype(float)
+    bad_w = (w < 0) | (w > 40)
+    bad_g = (g < 0) | (g > 60) | (g.notna() & w.notna() & (g < w))
+    prev = d.groupby(key)[wind].shift(1)
+    nxt = d.groupby(key)[wind].shift(-1)
+    neigh = pd.concat([prev, nxt], axis=1).max(axis=1)
+    bad_w |= (w > 20) & neigh.notna() & (neigh < w / 2)
+    n = int(bad_w.sum() + bad_g.sum())
+    d.loc[bad_w, wind] = float("nan")
+    d.loc[bad_g, gust] = float("nan")
+    return d, n
+
+
 def stations_period_max(cfg: Config, start: date, end: date) -> pd.DataFrame:
     """Vento médio e rajada máximos por estação INMET e aeroporto (METAR)."""
     t0 = pd.Timestamp(start, tz="UTC")
@@ -98,6 +126,9 @@ def stations_period_max(cfg: Config, start: date, end: date) -> pd.DataFrame:
                 continue
             df["time_utc"] = pd.to_datetime(df["time_utc"], utc=True)
             df = df[(df.time_utc > t0) & (df.time_utc <= t1)]
+            df, n_bad = qc_wind(df)
+            if n_bad:
+                log.info("vento INMET: %d valores descartados no controle de qualidade", n_bad)
             g = df.groupby(["codigo", "estacao", "lat", "lon"])
             agg = g.agg(vento_max_ms=("wind_ms", "max"), rajada_max_ms=("gust_ms", "max")).reset_index()
             idx = df.loc[df["gust_ms"].notna()].groupby("codigo")["gust_ms"].idxmax()
@@ -113,6 +144,7 @@ def stations_period_max(cfg: Config, start: date, end: date) -> pd.DataFrame:
         df = pd.concat([pd.read_csv(f) for f in metar], ignore_index=True)
         df["time_utc"] = pd.to_datetime(df["time_utc"], utc=True)
         df = df[(df.time_utc >= t0) & (df.time_utc < t1)]
+        df, _ = qc_wind(df, key="icao")
         g = df.groupby(["icao", "nome"])
         agg = g.agg(vento_max_ms=("wind_ms", "max"), rajada_max_ms=("gust_ms", "max")).reset_index()
         agg = agg.rename(columns={"icao": "codigo", "nome": "estacao"})

@@ -156,3 +156,18 @@ def test_period_totals_partial(monkeypatch):
     part = stations.period_totals(None, "X", date(2026, 10, 1), date(2026, 10, 10), max_missing_days=2)
     assert part.set_index("codigo")["dias_faltando"].to_dict() == {"A": 0, "B": 2}
     assert part.set_index("codigo").loc["A", "obs_mm"] == 240.0
+
+
+def test_qc_wind():
+    import pandas as pd
+
+    from tempestas.verify.wind import qc_wind
+
+    t = pd.date_range("2026-10-01", periods=6, freq="h", tz="UTC")
+    df = pd.DataFrame({"codigo": "A", "time_utc": t,
+                       "wind_ms": [3, 4, 24, 4, 3, 5], "gust_ms": [8, 30, 26, 2, 70, 9]})
+    out, n = qc_wind(df)
+    assert out["wind_ms"].isna().tolist() == [False, False, True, False, False, False]  # pico isolado
+    assert out["gust_ms"].tolist()[1] == 30  # rajada convectiva mantida
+    assert out["gust_ms"].isna().tolist() == [False, False, False, True, True, False]  # < médio; > 60
+    assert n == 3

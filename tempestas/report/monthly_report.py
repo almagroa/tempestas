@@ -14,6 +14,7 @@ from docx.shared import Cm, Pt, RGBColor  # noqa: E402
 
 from tempestas.mask import DEFAULT_REGIONS  # noqa: E402
 from tempestas.report.docx_report import MODEL_INFO, OBS_INFO, _heading, _num, _synthesis, _table  # noqa: E402
+from tempestas.verify.wind import ERA5_NOTE, WIND_QC_TEXT
 from tempestas.report.maps import INK, MUTED, event_maps, network_map, skill_by_lead, wind_maps  # noqa: E402
 from tempestas.verify.daily import summarize_by_lead  # noqa: E402
 from tempestas.verify.monthly import MonthResult  # noqa: E402
@@ -181,6 +182,8 @@ def build_monthly_report(
     if w is not None and (w.grids or w.stations is not None or w.metar_weather is not None):
         sec += 1
         _heading(doc, f"{sec}. Vento observado no mês")
+        doc.add_paragraph(ERA5_NOTE)
+        doc.add_paragraph(WIND_QC_TEXT)
         if w.grids:
             doc.add_picture(str(wind_maps(w.grids, fig_dir / "vento_mes.png", outline_path=DEFAULT_REGIONS,
                                           suptitle=f"Vento máximo – {mes}")), width=Cm(16))
