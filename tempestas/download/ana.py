@@ -44,6 +44,9 @@ def list_stations(uf: str = "RS", timeout: int = 120) -> pd.DataFrame:
     for c in ("Latitude", "Longitude"):
         if c in df:
             df[c] = pd.to_numeric(df[c].str.replace(",", "."), errors="coerce")
+    if {"Latitude", "Longitude"} <= set(df.columns) and uf == "RS":
+        # garante só o RS mesmo quando a lista não traz a UF (caixa do estado com folga)
+        df = df[df.Latitude.between(-34.0, -27.0) & df.Longitude.between(-58.0, -49.5)]
     return df
 
 
@@ -88,10 +91,21 @@ def update_recent(out_root, days: int = 35, uf: str = "RS") -> Path:
     code_col = next(c for c in st.columns if c.lower().startswith("codestacao") or c.lower() == "codigo")
     name_col = next((c for c in st.columns if c.lower().startswith("nomeestacao")), code_col)
     frames = []
+    log.info("ANA: %d estações telemétricas na área", len(st))
     for row in st.itertuples(index=False):
         code = str(getattr(row, code_col))
         try:
-            h = to_hourly(fetch_station(code, start, end))
+            parts = []
+            s0 = start
+            while s0 <= end:  # janelas de 7 dias: o servidor da ANA dá timeout em pedidos longos
+                e0 = min(s0 + timedelta(days=6), end)
+                try:
+                    parts.append(fetch_station(code, s0, e0, timeout=60))
+                except Exception as exc:
+                    log.warning("ANA %s %s–%s: %s", code, s0, e0, exc)
+                s0 = e0 + timedelta(days=1)
+            parts = [p for p in parts if not p.empty]
+            h = to_hourly(pd.concat(parts, ignore_index=True)) if parts else pd.DataFrame()
         except Exception as exc:
             log.warning("ANA %s: %s", code, exc)
             continue
