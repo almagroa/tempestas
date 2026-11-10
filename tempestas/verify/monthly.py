@@ -142,10 +142,11 @@ def verify_month(cfg: Config, year: int, month: int, models: list[str] | None = 
 
     daily = daily_verification(cfg, start, end, models=models)
 
+    max_missing = int(cfg.verification.get("monthly_max_missing_days", 0))
     st_frames = []
     for network in NETWORKS:
         try:
-            st_frames.append(period_totals(cfg, network, start, end))
+            st_frames.append(period_totals(cfg, network, start, end, max_missing_days=max_missing))
         except (FileNotFoundError, ValueError) as exc:
             skipped[network] = str(exc)
     stations = pd.concat(st_frames, ignore_index=True) if st_frames else None

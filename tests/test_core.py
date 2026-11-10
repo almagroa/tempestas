@@ -137,3 +137,22 @@ def test_cemaden_parse_csv_and_json():
     js = '{"scroll":"x","data":[{"cidade":"PORTO ALEGRE","codestacao":"1","datahora":"2026-11-03 00:20","id_sensor":10,"latitude":-30,"longitude":-51,"valor":0.4},{"cidade":"PORTO ALEGRE","codestacao":"1","datahora":"2026-11-03 00:20","id_sensor":20,"latitude":-30,"longitude":-51,"valor":99}]}'
     df = normalize(parse_body(js))
     assert len(df) == 1 and df.estacao.iloc[0] == "PORTO ALEGRE"
+
+
+def test_period_totals_partial(monkeypatch):
+    from datetime import date
+
+    import pandas as pd
+
+    from tempestas.io import stations
+
+    t = pd.date_range("2026-10-01 01:00", "2026-10-11 00:00", freq="h", tz="UTC")
+    a = pd.DataFrame({"time_utc": t, "precip_mm": 1.0, "codigo": "A", "estacao": "A", "lat": -30.0, "lon": -51.0})
+    b = a.assign(codigo="B", estacao="B")
+    b = b[(b.time_utc < "2026-10-03 06:00") | (b.time_utc > "2026-10-05 00:00")]  # 03 e 04/10 incompletos
+    monkeypatch.setitem(stations._READERS, "X", lambda cfg, y: pd.concat([a, b]))
+    strict = stations.period_totals(None, "X", date(2026, 10, 1), date(2026, 10, 10))
+    assert list(strict.codigo) == ["A"]
+    part = stations.period_totals(None, "X", date(2026, 10, 1), date(2026, 10, 10), max_missing_days=2)
+    assert part.set_index("codigo")["dias_faltando"].to_dict() == {"A": 0, "B": 2}
+    assert part.set_index("codigo").loc["A", "obs_mm"] == 240.0

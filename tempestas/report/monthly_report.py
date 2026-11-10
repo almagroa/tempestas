@@ -119,10 +119,10 @@ def build_monthly_report(
     if res.stations is not None and len(res.stations):
         doc.add_paragraph()
         top = res.stations.sort_values("obs_mm", ascending=False).head(10)
-        doc.add_paragraph("Maiores acumulados do mês em estações (registro completo):")
-        _table(doc, ["Rede", "Estação", "Código", "Chuva (mm)"],
-               [[r.rede, str(r.estacao).title(), r.codigo, _num(r.obs_mm, 1)] for r in top.itertuples()],
-               widths=[2, 7, 3, 2.5])
+        doc.add_paragraph("Maiores acumulados do mês em estações (dias faltantes não preenchidos):")
+        _table(doc, ["Rede", "Estação", "Código", "Chuva (mm)", "Dias faltando"],
+               [[r.rede, str(r.estacao).title(), r.codigo, _num(r.obs_mm, 1), int(getattr(r, "dias_faltando", 0))]
+                for r in top.itertuples()], widths=[2, 6.5, 2.5, 2.5, 2.5])
 
     # 4. Eventos
     sec = 4
@@ -206,9 +206,10 @@ def build_monthly_report(
     if res.inventory is not None:
         cnt = res.inventory.groupby(["rede", "situacao"]).size().unstack(fill_value=0)
         doc.add_paragraph()
-        _table(doc, ["Rede", "Com dados completos no mês", "Sem dados completos", "Aeroportos"],
-               [[k, int(cnt.loc[k].get("completa", 0)), int(cnt.loc[k].get("incompleta/sem dados", 0)),
-                 int(cnt.loc[k].get("aeroporto", 0))] for k in cnt.index], widths=[3, 4.5, 4, 3])
+        _table(doc, ["Rede", "Mês completo", "Parcial (até 3 dias faltando)", "Sem dados suficientes", "Aeroportos"],
+               [[k, int(cnt.loc[k].get("completa", 0)), int(cnt.loc[k].get("parcial", 0)),
+                 int(cnt.loc[k].get("incompleta/sem dados", 0)), int(cnt.loc[k].get("aeroporto", 0))]
+                for k in cnt.index], widths=[2.5, 3, 4, 4, 2.5])
     if res.skipped:
         doc.add_paragraph("Observações: " + "; ".join(f"{k}: {v}" for k, v in res.skipped.items()))
 

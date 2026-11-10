@@ -15,6 +15,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 import xarray as xr  # noqa: E402
 from matplotlib.colors import BoundaryNorm  # noqa: E402
 
@@ -292,12 +293,17 @@ def network_map(inventory, background: xr.DataArray, out_path, bg_name: str = "I
             ax.scatter(miss["lon"], miss["lat"], marker=mk, s=size, facecolors=face,
                        edgecolors="#6e7781" if net != "METAR" else INK, linewidths=0.8, zorder=3 + z)
         if len(ok):
+            part = ok.get("situacao", pd.Series("completa", index=ok.index)).eq("parcial")
             sc = ax.scatter(ok["lon"], ok["lat"], marker=mk, s=size, c=ok["obs_mm"], cmap="Blues", norm=norm,
-                            edgecolors=INK, linewidths=0.5, zorder=4 + z)
+                            edgecolors=np.where(part, "#d9822b", INK), linewidths=np.where(part, 1.1, 0.5),
+                            zorder=4 + z)
         n_ok, n_all = len(ok), len(g)
         label = f"{net}: {n_all} aeroportos (vento e tempo presente)" if net == "METAR" else f"{net}: {n_ok} de {n_all} com dados completos"
         handles.append(Line2D([], [], marker=mk, ls="", ms=9 if mk == "*" else 6, mfc="#f2c94c" if net == "METAR" else "#9ecae1",
                               mec=INK, label=label))
+    if "situacao" in inventory and inventory["situacao"].eq("parcial").any():
+        handles.append(Line2D([], [], marker="o", ls="", ms=6, mfc="#9ecae1", mec="#d9822b", mew=1.1,
+                              label="borda laranja = parcial (até 3 dias faltando)"))
     handles.append(Line2D([], [], marker="o", ls="", ms=6, mfc="none", mec="#6e7781", label="vazado = sem dados completos no período"))
     ax.legend(handles=handles, loc="lower left", fontsize=7.5, frameon=True, framealpha=0.9)
     if sc is not None:

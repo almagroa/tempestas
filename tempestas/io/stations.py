@@ -44,8 +44,12 @@ _READERS = {"INMET": _inmet_year, "Cemaden": _csv_year("CEMADEN", "CEMADEN"), "A
 NETWORKS = list(_READERS)
 
 
-def period_totals(cfg: Config, network: str, start: date, end: date) -> pd.DataFrame:
-    """Total de chuva por estação de uma rede no período (dia UTC). Redes não são fundidas."""
+def period_totals(cfg: Config, network: str, start: date, end: date, max_missing_days: int = 0) -> pd.DataFrame:
+    """Total de chuva por estação de uma rede no período (dia UTC). Redes não são fundidas.
+
+    Entram estações com no máximo ``max_missing_days`` dias incompletos; os dias que
+    faltam não são preenchidos (coluna ``dias_faltando``).
+    """
     frames = [_READERS[network](cfg, y) for y in range(start.year, end.year + 1)]
     frames = [f for f in frames if not f.empty]
     if not frames:
@@ -56,7 +60,8 @@ def period_totals(cfg: Config, network: str, start: date, end: date) -> pd.DataF
     n_days = (end - start).days + 1
     g = daily.groupby(["codigo", "estacao", "lat", "lon"])
     tot = g["precip_mm"].agg(obs_mm="sum", dias_validos="count").reset_index()
-    tot = tot[tot["dias_validos"] == n_days].drop(columns="dias_validos")
+    tot["dias_faltando"] = n_days - tot.pop("dias_validos")
+    tot = tot[tot["dias_faltando"] <= max_missing_days]
     tot = tot.dropna(subset=["lat", "lon"])
     if tot.empty:
         raise ValueError(f"nenhuma estação {network} com dados completos em {start}–{end}")
@@ -119,12 +124,14 @@ def station_inventory(cfg: Config, start: date, end: date, complete: pd.DataFram
     inv = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=["rede", "codigo", "estacao", "lat", "lon"])
     inv["codigo"] = inv["codigo"].astype(str)
     if complete is not None and len(complete):
-        c = complete[["rede", "codigo", "obs_mm"]].copy()
+        c = complete[["rede", "codigo", "obs_mm"] + (["dias_faltando"] if "dias_faltando" in complete else [])].copy()
         c["codigo"] = c["codigo"].astype(str)
         inv = inv.merge(c, on=["rede", "codigo"], how="left")
     else:
         inv["obs_mm"] = float("nan")
     inv["situacao"] = inv["obs_mm"].notna().map({True: "completa", False: "incompleta/sem dados"})
+    if "dias_faltando" in inv:
+        inv.loc[inv["obs_mm"].notna() & (inv["dias_faltando"] > 0), "situacao"] = "parcial"
     ap = pd.DataFrame([
         {"rede": "METAR", "codigo": k, "estacao": v[0], "lat": v[1], "lon": v[2], "obs_mm": float("nan"), "situacao": "aeroporto"}
         for k, v in AIRPORTS_RS.items()

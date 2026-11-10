@@ -66,3 +66,4 @@ verification:
   grid: 0.1                       # grade comum (graus); tudo é reamostrado para ela
   thresholds_mm: [10, 25, 50, 100]   # aplicados ao acumulado do período analisado
   lead_days: [1, 2, 3, 5, 7, 10, 15]
+  monthly_max_missing_days: 3     # relatório mensal: estação entra como "parcial" com até 3 dias faltando (sem preencher)
