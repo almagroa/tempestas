@@ -29,6 +29,39 @@ def _inmet_year(cfg: Config, year: int) -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def _ana_year(cfg: Config, year: int) -> pd.DataFrame:
+    csv = cfg.paths["work_dir"] / "dados" / "ANA" / f"ANA_RS_{year}.csv"
+    if not csv.exists():
+        return pd.DataFrame()
+    df = pd.read_csv(csv, dtype={"codigo": str})
+    df["time_utc"] = pd.to_datetime(df["time_utc"], utc=True)
+    return df
+
+
+_READERS = {"INMET": _inmet_year, "ANA": _ana_year}
+NETWORKS = list(_READERS)
+
+
+def period_totals(cfg: Config, network: str, start: date, end: date) -> pd.DataFrame:
+    """Total de chuva por estação de uma rede no período (dia UTC). Redes não são fundidas."""
+    frames = [_READERS[network](cfg, y) for y in range(start.year, end.year + 1)]
+    frames = [f for f in frames if not f.empty]
+    if not frames:
+        raise FileNotFoundError(f"sem dados {network} para {start}–{end}")
+    hourly = pd.concat(frames, ignore_index=True)
+    daily = daily_precip(hourly, day_start_hour_utc=0)
+    daily = daily[(daily["dia"] >= pd.Timestamp(start)) & (daily["dia"] <= pd.Timestamp(end))]
+    n_days = (end - start).days + 1
+    g = daily.groupby(["codigo", "estacao", "lat", "lon"])
+    tot = g["precip_mm"].agg(obs_mm="sum", dias_validos="count").reset_index()
+    tot = tot[tot["dias_validos"] == n_days].drop(columns="dias_validos")
+    tot = tot.dropna(subset=["lat", "lon"])
+    if tot.empty:
+        raise ValueError(f"nenhuma estação {network} com dados completos em {start}–{end}")
+    tot.insert(0, "rede", network)
+    return tot
+
+
 def inmet_period_totals(cfg: Config, start: date, end: date) -> pd.DataFrame:
     """Total de chuva por estação no período (dia UTC, como IMERG e modelos).
 

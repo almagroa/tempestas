@@ -62,6 +62,12 @@ def _cmd_baixar(args) -> None:
             inmet.update_recent(root)  # completa os dias recentes pela API
         except Exception as exc:
             logging.warning("INMET API: %s", exc)
+    if "ana" in args.fontes:
+        from tempestas.download import ana
+        try:
+            ana.update_recent(root)
+        except Exception as exc:
+            logging.warning("ANA: %s", exc)
     print(f"Downloads concluídos em {root}")
 
 
@@ -81,7 +87,7 @@ def main(argv: list[str] | None = None) -> None:
     ev.set_defaults(func=_cmd_evento)
 
     bx = sub.add_parser("baixar", help="atualiza ERA5/ERA5-Land, METAR e INMET")
-    bx.add_argument("--fontes", nargs="*", default=["era5", "metar", "inmet"], choices=["era5", "metar", "inmet"])
+    bx.add_argument("--fontes", nargs="*", default=["era5", "metar", "inmet", "ana"], choices=["era5", "metar", "inmet", "ana"])
     bx.add_argument("--dias", type=int, default=15, help="janela de dias do ERA5 a garantir")
     bx.add_argument("--saida", help="pasta de dados (padrão: <work_dir>/dados)")
     bx.set_defaults(func=_cmd_baixar)

@@ -99,3 +99,19 @@ def test_point_table_nearest():
     row = t.iloc[0]
     assert row.n_stations == 2 and row.bias_mm == pytest.approx(5.0)
     assert (row.hits, row.misses, row.false_alarms) == (1, 0, 0)
+
+
+def test_ana_xml_and_hourly():
+    from tempestas.download.ana import _rows, to_hourly
+    xml = """<?xml version="1.0"?><DataTable><diffgr:diffgram xmlns:diffgr="urn:x"><DocumentElement>
+    <DadosHidrometereologicos><CodEstacao>1</CodEstacao><DataHora>2026-11-03 10:15:00</DataHora><Chuva>1,5</Chuva></DadosHidrometereologicos>
+    <DadosHidrometereologicos><CodEstacao>1</CodEstacao><DataHora>2026-11-03 10:30:00</DataHora><Chuva>0.5</Chuva></DadosHidrometereologicos>
+    </DocumentElement></diffgr:diffgram></DataTable>"""
+    rows = _rows(xml, "DadosHidrometereologicos")
+    assert len(rows) == 2 and rows[0]["Chuva"] == "1,5"
+    local = pd.to_datetime([r["DataHora"] for r in rows])
+    df = pd.DataFrame({"time_utc": (local + pd.Timedelta(hours=3)).tz_localize("UTC"),
+                       "precip_mm": [1.5, 0.5], "codigo": "1"})
+    h = to_hourly(df)
+    assert len(h) == 1 and pd.Timestamp(h.time_utc.iloc[0]) == pd.Timestamp("2026-11-03 14:00", tz="UTC")
+    assert np.isnan(h.precip_mm.iloc[0])  # só 2 registros de 15 min: hora incompleta

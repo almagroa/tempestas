@@ -13,7 +13,7 @@ from tempestas.io.forecasts import forecast_for_period
 from tempestas.io.observed import observed_total
 from tempestas.io.standardize import regrid, target_grid
 from tempestas.mask import region_masks
-from tempestas.io.stations import inmet_period_totals
+from tempestas.io.stations import NETWORKS, period_totals
 from tempestas.verify.metrics import point_table, score_table
 
 log = logging.getLogger(__name__)
@@ -69,12 +69,19 @@ def verify_event(
         tables.append(t)
     scores = pd.concat(tables, ignore_index=True)
 
-    stations = station_scores = None
-    try:
-        stations = inmet_period_totals(cfg, start, end)
-        fields = {**forecasts, **{f"{k} (grade)": v for k, v in observed.items()}}
-        station_scores = point_table(stations, fields, thresholds)
-    except (FileNotFoundError, ValueError) as exc:
-        skipped["INMET"] = str(exc)
-        log.warning("estações INMET ignoradas: %s", exc)
+    station_frames, score_frames = [], []
+    fields = {**forecasts, **{f"{k} (grade)": v for k, v in observed.items()}}
+    for network in NETWORKS:
+        try:
+            st = period_totals(cfg, network, start, end)
+        except (FileNotFoundError, ValueError) as exc:
+            skipped[network] = str(exc)
+            log.warning("estações %s ignoradas: %s", network, exc)
+            continue
+        sc = point_table(st, fields, thresholds)
+        sc.insert(0, "rede", network)
+        station_frames.append(st)
+        score_frames.append(sc)
+    stations = pd.concat(station_frames, ignore_index=True) if station_frames else None
+    station_scores = pd.concat(score_frames, ignore_index=True) if score_frames else None
     return EventResult(start, end, observed, forecasts, masks, scores, skipped, stations, station_scores)
