@@ -187,3 +187,77 @@ def daily_series(daily, out_path, observed: str, lead: int = 1, region: str = "R
     fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     return out_path
+
+
+def _sample(fld: xr.DataArray, stations) -> np.ndarray:
+    lat = xr.DataArray(stations["lat"].values, dims="st")
+    lon = xr.DataArray(stations["lon"].values, dims="st")
+    return fld.sel(lat=lat, lon=lon, method="nearest").values
+
+
+def station_maps(
+    stations,
+    observed: dict[str, xr.DataArray],
+    forecasts: dict[str, xr.DataArray],
+    out_path: str | Path,
+    lead_start: int = 1,
+    outline_path=None,
+    mask: xr.DataArray | None = None,
+    suptitle: str = "",
+) -> Path:
+    """Estações plotadas.
+
+    Linha 1: chuva acumulada nas estações (círculos) sobre o campo do produto em
+    grade, mesma escala de cores; um painel por rede.
+    Linhas seguintes: erro de cada modelo em cada estação (previsto − estação),
+    escala divergente.
+    """
+    outline = _outline_lines(outline_path)
+    networks = list(stations["rede"].unique())
+    bg_name, bg = next(iter(observed.items()))
+
+    fc_sel = {}
+    for name, fc in forecasts.items():
+        leads = fc["lead_start"].values
+        ok = np.where(leads >= lead_start)[0]
+        if ok.size:
+            i = ok[np.argmin(leads[ok])]
+            fc_sel[name] = (fc.isel(init=i), int(leads[i]))
+
+    ncols = max(len(networks), 3)
+    nrows_fc = int(np.ceil(len(fc_sel) / ncols))
+    fig, axes = plt.subplots(1 + nrows_fc, ncols, figsize=(3.3 * ncols, 3.4 * (1 + nrows_fc)), squeeze=False)
+    for ax in axes.ravel():
+        ax.set_visible(False)
+
+    p_norm = BoundaryNorm(PRECIP_LEVELS, plt.get_cmap("Blues").N, extend="both")
+    d_norm = BoundaryNorm(DIFF_LEVELS, plt.get_cmap("BrBG").N, extend="both")
+    sc_p = sc_d = None
+    for j, net in enumerate(networks):
+        st = stations[stations.rede == net]
+        ax = axes[0, j]
+        ax.set_visible(True)
+        _panel(ax, bg, PRECIP_LEVELS, "Blues", outline, f"{net} ({len(st)} est.) · fundo {bg_name}", mask)
+        sc_p = ax.scatter(st["lon"], st["lat"], c=st["obs_mm"], cmap="Blues", norm=p_norm, s=14,
+                          edgecolors=INK, linewidths=0.4, zorder=3)
+
+    for k, (name, (fc, lead)) in enumerate(fc_sel.items()):
+        ax = axes[1 + k // ncols, k % ncols]
+        ax.set_visible(True)
+        err = _sample(fc, stations) - stations["obs_mm"].values
+        _panel(ax, fc * np.nan, PRECIP_LEVELS, "Blues", outline, f"{name} − est. ({lead} d)")
+        order = np.argsort(np.abs(err))  # maiores erros por cima
+        sc_d = ax.scatter(stations["lon"].values[order], stations["lat"].values[order], c=err[order],
+                          cmap="BrBG", norm=d_norm, s=12, edgecolors="#ffffff", linewidths=0.3, zorder=3)
+
+    if sc_p is not None:
+        fig.colorbar(sc_p, ax=axes[0, :].tolist(), shrink=0.8, label="Chuva acumulada (mm)")
+    if sc_d is not None:
+        fig.colorbar(sc_d, ax=axes[1:, :].ravel().tolist(), shrink=0.8, label="Previsto − estação (mm)")
+    if suptitle:
+        fig.suptitle(suptitle, fontsize=11, color=INK, x=0.02, ha="left")
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    return out_path

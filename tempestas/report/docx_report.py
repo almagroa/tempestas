@@ -15,7 +15,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Cm, Pt, RGBColor
 
 from tempestas.mask import DEFAULT_REGIONS
-from tempestas.report.maps import daily_series, event_maps, skill_by_lead, wind_maps
+from tempestas.report.maps import daily_series, event_maps, skill_by_lead, station_maps, wind_maps
 from tempestas.verify.daily import summarize_by_lead
 from tempestas.verify.event import EventResult
 from tempestas.verify.wind import WindResult
@@ -210,6 +210,15 @@ def build_event_report(
             "avaliada separadamente. Para cada estação usou-se a célula da grade mais próxima. A linha do produto "
             "em grade (ex.: IMERG) mostra quanto a própria estimativa por satélite difere dos pluviômetros."
         )
+        st_png = station_maps(
+            result.stations, result.observed, result.forecasts, fig_dir / "estacoes.png", lead_start=lead,
+            outline_path=DEFAULT_REGIONS, mask=result.masks["RS"], suptitle=f"Estações: chuva de {period}",
+        )
+        doc.add_picture(str(st_png), width=Cm(17))
+        doc.add_paragraph(
+            "Linha 1: chuva acumulada em cada estação (círculos) sobre o campo do produto em grade, na mesma escala. "
+            "Demais painéis: diferença previsto − estação para cada modelo (marrom = previu menos; verde = previu mais)."
+        ).runs[0].italic = True
         for network, ss in result.station_scores.groupby("rede", sort=False):
             n_st = int(ss["n_stations"].iloc[0])
             doc.add_paragraph().add_run(f"{network}: {OBS_INFO.get(network, '')} – {n_st} estações").bold = True
