@@ -15,7 +15,10 @@ from docx.shared import Cm, Pt, RGBColor  # noqa: E402
 from tempestas.mask import DEFAULT_REGIONS  # noqa: E402
 from tempestas.report.docx_report import MODEL_INFO, OBS_INFO, _heading, _num, _synthesis, _table  # noqa: E402
 from tempestas.verify.wind import ERA5_NOTE, WIND_QC_TEXT
-from tempestas.report.maps import INK, MUTED, event_maps, network_map, skill_by_lead, wind_maps  # noqa: E402
+from tempestas.report.maps import (  # noqa: E402
+    INK, MUTED, event_maps, network_map, probability_maps, reliability_rank, skill_by_lead, wind_maps,
+)
+from tempestas.verify.probabilistic import event_summary  # noqa: E402
 from tempestas.verify.daily import summarize_by_lead  # noqa: E402
 from tempestas.verify.monthly import MonthResult  # noqa: E402
 
@@ -43,6 +46,79 @@ def _daily_bars(res: MonthResult, out: Path) -> Path:
     fig.savefig(out, dpi=150, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     return out
+
+
+PROB_METHOD = (
+    "Os modelos arquivados são determinísticos (o GEFS guardado é a média do seu ensemble). A incerteza da "
+    "previsão é estimada juntando, para o mesmo período, todos os modelos e as rodadas feitas de 1 a 5 dias antes "
+    "(ensemble multimodelo defasado). A probabilidade de um limiar é a fração dessas previsões que o ultrapassou. "
+    "O leque mede a discordância entre modelos e rodadas; não é a incerteza calibrada de um ensemble de perturbações."
+)
+
+
+def _event_probabilistic(doc, ens, ev, ref, k, per, fig_dir) -> None:
+    obs = ev.observed[ref]
+    mask = ev.masks["RS"]
+    thr_list = [50, 100]
+    sm = event_summary(ens, obs, mask, thr_list)
+    doc.add_paragraph(f"Previsão probabilística do evento ({sm['n']} previsões: modelos × antecedências de 1 a 5 dias)",
+                      style="Heading 3")
+    lines = []
+    if "p10" in sm:
+        pos = sm["pct_obs"]
+        where = ("abaixo de todas as previsões" if sm["obs_media"] < sm["minimo"] else
+                 "acima de todas as previsões" if sm["obs_media"] > sm["maximo"] else
+                 f"no percentil {pos * 100:.0f} das previsões")
+        lines.append(f"Chuva média no RS: observado {sm['obs_media']:.0f} mm; previsões entre {sm['minimo']:.0f} e "
+                     f"{sm['maximo']:.0f} mm (P10 {sm['p10']:.0f}, mediana {sm['p50']:.0f}, P90 {sm['p90']:.0f} mm). "
+                     f"O observado ficou {where}.")
+    ap = sm["area_posicao"]
+    lines.append(f"Ponto a ponto, {ap['dentro do leque'] * 100:.0f}% da área do RS teve chuva dentro do leque das "
+                 f"previsões, {ap['acima de todas as previsões'] * 100:.0f}% acima de todas e "
+                 f"{ap['abaixo de todas as previsões'] * 100:.0f}% abaixo de todas.")
+    for t in sm["limiares"]:
+        if t["area_obs"] > 0:
+            lines.append(f"≥ {t['limiar_mm']} mm: observado em {t['area_obs'] * 100:.0f}% da área; ali a probabilidade "
+                         f"prevista média era {t['prob_media_onde_ocorreu'] * 100:.0f}% (máxima no estado "
+                         f"{t['prob_max'] * 100:.0f}%).")
+        else:
+            lines.append(f"≥ {t['limiar_mm']} mm: não observado; a probabilidade prevista chegou a "
+                         f"{t['prob_max'] * 100:.0f}% e passou de 50% em {t['area_prob_ge_50pct'] * 100:.0f}% da área.")
+    for ln in lines:
+        doc.add_paragraph(ln, style="List Bullet")
+    from tempestas.verify.probabilistic import probability
+
+    thr = next((t["limiar_mm"] for t in reversed(sm["limiares"]) if t["area_obs"] >= 0.02), 50)
+    png = probability_maps(probability(ens, thr), obs, thr, sm["cat"], sm["pct"],
+                           fig_dir / f"evento{k}_probabilidade.png", outline_path=DEFAULT_REGIONS, mask=mask,
+                           n_members=sm["n"], suptitle=f"Evento {k}: {per} – previsão probabilística")
+    doc.add_picture(str(png), width=Cm(16.5))
+
+
+def _monthly_probabilistic(doc, prob, daily_threshold, fig_dir) -> None:
+    doc.add_paragraph("Previsão probabilística no mês (chuva diária)", style="Heading 2")
+    doc.add_paragraph(PROB_METHOD + f" Neste mês: até {prob['n_members']} previsões por dia.")
+    pos = prob["position"]
+    doc.add_paragraph(
+        f"Em todos os dias e pontos do RS com chuva observada ou prevista (≥ 1 mm), a chuva observada ficou dentro do leque das previsões em "
+        f"{pos['dentro do leque'] * 100:.0f}% dos casos, acima de todas em {pos['acima de todas as previsões'] * 100:.0f}% "
+        f"e abaixo de todas em {pos['abaixo de todas as previsões'] * 100:.0f}%."
+    )
+    b = prob["brier"]
+    _table(doc, ["Limiar (mm/dia)", "Frequência observada", "Brier", "Brier da climatologia", "Ganho (BSS)"],
+           [[f"≥ {r.limiar_mm:g}", f"{r.freq_obs * 100:.1f}%", _num(r.brier, 3), _num(r.brier_clim, 3),
+             _num(r.bss, 2)] for r in b.itertuples()], widths=[3, 3.4, 2.2, 3.6, 2.6])
+    doc.add_paragraph(
+        "Brier: erro quadrático médio da probabilidade (0 = perfeito). Ganho (BSS) > 0 indica que as probabilidades "
+        "foram melhores do que usar sempre a frequência observada no mês; ≤ 0, que não acrescentaram informação."
+    )
+    png = reliability_rank(prob["reliability"], prob["rank_hist"], fig_dir / "confiabilidade_mes.png")
+    doc.add_picture(str(png), width=Cm(15.5))
+    doc.add_paragraph(
+        "Confiabilidade: quando as previsões indicaram uma probabilidade, com que frequência a chuva ocorreu "
+        "(pontos sobre a diagonal = probabilidades confiáveis; abaixo = superestimam a chance). Posição do observado: "
+        "barras altas nas pontas indicam que o leque é estreito demais (o observado cai fora com frequência)."
+    )
 
 
 def build_monthly_report(
@@ -144,6 +220,9 @@ def build_monthly_report(
                [[r.model, r.lead_start, _num(r.obs_mean, 0), _num(r.fc_mean, 0), _num(r.bias_pct, 0, True),
                  _num(r.pod, 2), _num(r.far, 2), _num(r.csi, 2)] for r in s.itertuples()],
                widths=[2.6, 1.6, 1.8, 1.8, 1.6, 1.4, 1.4, 1.4])
+        ens = res.event_ens[k - 1] if k - 1 < len(res.event_ens) else None
+        if ens is not None:
+            _event_probabilistic(doc, ens, ev, ref, k, per, fig_dir)
         if ev.station_scores is not None and len(ev.station_scores):
             ss = ev.station_scores[(ev.station_scores.threshold_mm == event_threshold)]
             ss = ss[(ss["lead_start"].isna()) | (ss["lead_start"] == ss.groupby("source")["lead_start"].transform("min"))]
@@ -176,6 +255,9 @@ def build_monthly_report(
             if len(sr):
                 doc.add_paragraph(f"{region} – 1 dia de antecedência: " + "; ".join(
                     f"{r.model} CSI {_num(r.csi, 2)} (viés {_num(r.bias_pct, 0, True)})" for r in sr.itertuples()) + ".")
+
+    if res.prob is not None:
+        _monthly_probabilistic(doc, res.prob, daily_threshold, fig_dir)
 
     # 6. Vento
     w = res.wind

@@ -39,6 +39,8 @@ class MonthResult:
     inventory: pd.DataFrame | None
     availability: pd.DataFrame                   # rodadas disponíveis por modelo
     skipped: dict[str, str] = field(default_factory=dict)
+    prob: dict | None = None                     # métricas probabilísticas do mês (ensemble multimodelo defasado)
+    event_ens: list = field(default_factory=list)  # ensemble do total de cada evento (member, lat, lon)
 
 
 def detect_events(
@@ -142,6 +144,22 @@ def verify_month(cfg: Config, year: int, month: int, models: list[str] | None = 
 
     daily = daily_verification(cfg, start, end, models=models)
 
+    from tempestas.verify.probabilistic import daily_ensemble, event_ensemble, monthly_probabilistic
+
+    prob, event_ens = None, []
+    try:
+        ens = daily_ensemble(cfg, start, end, lats, lons, models=models)
+        prob = monthly_probabilistic(ens, obs_daily[ref], masks["RS"])
+    except Exception as exc:
+        skipped["probabilístico"] = str(exc)
+        log.warning("probabilístico: %s", exc)
+    for ev in event_results:
+        try:
+            event_ens.append(event_ensemble(ev.forecasts))
+        except Exception as exc:
+            event_ens.append(None)
+            log.warning("ensemble do evento %s: %s", ev.start, exc)
+
     max_missing = int(cfg.verification.get("monthly_max_missing_days", 0))
     st_frames = []
     for network in NETWORKS:
@@ -164,5 +182,5 @@ def verify_month(cfg: Config, year: int, month: int, models: list[str] | None = 
 
     return MonthResult(
         year, month, start, end, obs_daily, obs_total, masks, pd.DataFrame(reg_rows), events, event_results,
-        daily, wind, stations, inventory, run_availability(cfg, start, end), skipped,
+        daily, wind, stations, inventory, run_availability(cfg, start, end), skipped, prob, event_ens,
     )

@@ -207,3 +207,19 @@ def test_qc_wind_faulty_station():
     assert out.attrs["rajada_suspeita"] == ["B853"]
     assert out[out.codigo == "B853"]["gust_ms"].max() == 22.0
     assert out[out.codigo == "A"]["gust_ms"].max() == 33.0
+
+
+def test_probabilistic_basics():
+    import numpy as np
+    import xarray as xr
+
+    from tempestas.verify.probabilistic import brier, obs_position, probability
+
+    ens = xr.DataArray(np.array([10., 20., 30., 40.])[:, None, None] * np.ones((4, 2, 2)), dims=("member", "lat", "lon"))
+    obs = xr.DataArray([[5., 25.], [35., 60.]], dims=("lat", "lon"))
+    assert probability(ens, 25).values.tolist() == [[0.5, 0.5], [0.5, 0.5]]
+    cat, pct = obs_position(ens, obs)
+    assert cat.values.tolist() == [[0, 1], [1, 2]]
+    assert pct.values.tolist() == [[0.0, 0.5], [0.75, 1.0]]
+    b = brier(np.array([1.0, 0.0, 0.5]), np.array([1.0, 0.0, 1.0]))
+    assert abs(b["brier"] - 0.25 / 3) < 1e-9 and b["bss"] > 0

@@ -18,6 +18,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import xarray as xr  # noqa: E402
 from matplotlib.colors import BoundaryNorm  # noqa: E402
+from matplotlib.lines import Line2D  # noqa: E402
 
 PRECIP_LEVELS = [0, 5, 10, 25, 50, 75, 100, 150, 200, 300]
 DIFF_LEVELS = [-150, -100, -50, -25, -10, 10, 25, 50, 100, 150]
@@ -313,5 +314,88 @@ def network_map(inventory, background: xr.DataArray, out_path, bg_name: str = "I
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    return out_path
+
+
+PROB_LEVELS = [0, 0.05, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0001]
+POSITION_COLORS = ["#b5651d", "#d9d9d9", "#1f6fb2"]  # abaixo / dentro / acima do leque
+
+
+def probability_maps(
+    prob: xr.DataArray, obs_total: xr.DataArray, threshold: float, position: xr.DataArray, percentile: xr.DataArray,
+    out_path, outline_path=None, mask=None, n_members: int | None = None, suptitle: str = "",
+) -> Path:
+    """Três painéis: probabilidade prevista ≥ limiar (com contorno do observado ≥ limiar),
+    posição do observado no leque das previsões e percentil do observado."""
+    from matplotlib.colors import ListedColormap
+    from matplotlib.patches import Patch
+
+    outline = _outline_lines(outline_path)
+    fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.9))
+    im = _panel(axes[0], prob, PROB_LEVELS, "Purples", outline,
+                f"Probabilidade prevista de ≥ {threshold:g} mm" + (f" ({n_members} previsões)" if n_members else ""), mask)
+    ob = obs_total.where(mask) if mask is not None else obs_total
+    if float(ob.max()) >= threshold:
+        axes[0].contour(ob["lon"], ob["lat"], (ob >= threshold).astype(float), levels=[0.5], colors="#e07a00", linewidths=1.4)
+    cb = fig.colorbar(im, ax=axes[0], shrink=0.75, ticks=[0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    cb.ax.set_yticklabels(["0%", "20%", "40%", "60%", "80%", "100%"], fontsize=7)
+    axes[0].legend(handles=[Line2D([], [], color="#e07a00", lw=1.4, label=f"observado ≥ {threshold:g} mm")],
+                   loc="lower right", fontsize=7, frameon=False)
+
+    cmap = ListedColormap(POSITION_COLORS)
+    pos = position.where(mask) if mask is not None else position
+    axes[1].pcolormesh(pos["lon"], pos["lat"], pos, cmap=cmap, vmin=-0.5, vmax=2.5, shading="nearest")
+    for ring in outline:
+        axes[1].plot(ring[:, 0], ring[:, 1], color=INK, lw=0.6)
+    axes[1].set_title("Observado em relação às previsões", fontsize=9, color=INK, loc="left")
+    axes[1].set_aspect(1 / math.cos(math.radians(float(pos["lat"].mean()))))
+    axes[1].tick_params(labelsize=7, colors=MUTED)
+    axes[1].legend(handles=[Patch(color=c, label=l) for c, l in zip(
+        POSITION_COLORS, ["abaixo de todas", "dentro do leque", "acima de todas"])], loc="lower right", fontsize=7, frameon=False)
+
+    im3 = _panel(axes[2], percentile, [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0001], "BrBG", outline,
+                 "Percentil do observado entre as previsões", mask)
+    cb3 = fig.colorbar(im3, ax=axes[2], shrink=0.75, ticks=[0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0])
+    cb3.ax.set_yticklabels(["0", "P10", "P25", "P50", "P75", "P90", "100"], fontsize=7)
+    if suptitle:
+        fig.suptitle(suptitle, x=0.01, ha="left", fontsize=11, color=INK)
+    fig.tight_layout()
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    return out_path
+
+
+def reliability_rank(reliab: dict, rank_hist, out_path) -> Path:
+    """Diagrama de confiabilidade (por limiar) e histograma de posição do observado."""
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(10, 4.2))
+    a1.plot([0, 1], [0, 1], color=MUTED, lw=0.8, ls="--", label="perfeito")
+    colors = ["#5b3fa0", "#e07a00", "#2a9d8f"]
+    for (thr, df), c in zip(reliab.items(), colors):
+        d = df[df["n"] > 0]
+        a1.plot(d["p_media"], d["freq_obs"], marker="o", color=c, label=f"≥ {thr:g} mm")
+    a1.set_xlim(0, 1)
+    a1.set_ylim(0, 1)
+    a1.set_xlabel("Probabilidade prevista", fontsize=8, color=MUTED)
+    a1.set_ylabel("Frequência observada", fontsize=8, color=MUTED)
+    a1.set_title("Confiabilidade (diária)", fontsize=10, color=INK, loc="left")
+    a1.legend(fontsize=7, frameon=False)
+    h = np.asarray(rank_hist, dtype=float)
+    if h.sum():
+        h = h / h.sum()
+    a2.bar(np.arange(10) * 10 + 5, h * 100, width=9, color="#5b3fa0")
+    a2.axhline(10, color=MUTED, lw=0.8, ls="--")
+    a2.set_xlabel("Percentil do observado entre as previsões", fontsize=8, color=MUTED)
+    a2.set_ylabel("% dos casos (dias com chuva)", fontsize=8, color=MUTED)
+    a2.set_title("Posição do observado (ideal = plano, 10%)", fontsize=10, color=INK, loc="left")
+    for ax in (a1, a2):
+        ax.tick_params(labelsize=7, colors=MUTED)
+        for s in ax.spines.values():
+            s.set_color("#d0d7de")
+    fig.tight_layout()
+    out_path = Path(out_path)
+    fig.savefig(out_path, dpi=150)
     plt.close(fig)
     return out_path
