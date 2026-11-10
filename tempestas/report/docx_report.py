@@ -258,7 +258,7 @@ def build_event_report(
                widths=[2.4, 1.4, 1.1, 1.8, 1.8, 1.4, 1.3, 1.3, 1.3])
         doc.add_paragraph()
 
-    if wind is not None and (wind.grids or wind.stations is not None):
+    if wind is not None and (wind.grids or wind.stations is not None or wind.metar_weather is not None):
         _heading(doc, f"{sec}. Vento observado")
         sec += 1
         doc.add_paragraph(
@@ -277,6 +277,16 @@ def build_event_report(
                    [[r.rede, str(r.estacao).title(), _num(r.rajada_max_ms, 1), _num(r.rajada_max_ms * 3.6, 0),
                      _num(r.vento_max_ms, 1)] for r in top.itertuples()],
                    widths=[1.8, 6.0, 2.8, 2.5, 3.2])
+        if wind.metar_weather is not None and len(wind.metar_weather):
+            doc.add_paragraph(
+                "Tempo presente nos aeroportos (METAR): horas com registro de chuva, chuva forte e trovoada. "
+                "O METAR brasileiro raramente informa a quantidade de chuva; a informação é qualitativa."
+            )
+            mw = wind.metar_weather.sort_values("horas_chuva", ascending=False)
+            _table(doc, ["Aeroporto", "Horas com chuva", "Horas com chuva forte", "Horas com trovoada"],
+                   [[f"{r.nome} ({r.icao})", int(r.horas_chuva), int(r.horas_chuva_forte), int(r.horas_trovoada)]
+                    for r in mw.itertuples()], widths=[6, 3, 3.5, 3.5])
+            doc.add_paragraph()
         if wind.skipped:
             doc.add_paragraph("Fontes de vento sem dados: " + "; ".join(wind.skipped) + ".")
 

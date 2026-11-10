@@ -28,8 +28,6 @@ RS_AIRPORTS = {
     "SBUG": "Uruguaiana",
     "SBBG": "Bagé",
     "SBNM": "Santo Ângelo",
-    "SBSG": "São Gabriel",
-    "SBTR": "Torres",
 }
 
 KT_TO_MS = 0.514444
@@ -70,3 +68,20 @@ def update_month(out_root: str | Path, year: int, month: int) -> Path:
     df.to_csv(out, index=False)
     log.info("METAR %s-%02d: %d registros", year, month, len(df))
     return out
+
+
+def weather_hours(df: pd.DataFrame) -> pd.DataFrame:
+    """Horas com chuva e com trovoada por aeroporto, a partir do tempo presente do METAR.
+
+    O METAR brasileiro quase nunca informa a quantidade de chuva, mas informa o
+    fenômeno (RA, SHRA, TSRA, +RA etc.). Serve como indicação qualitativa.
+    """
+    d = df.dropna(subset=["metar"]).copy()
+    d["hora"] = d["time_utc"].dt.floor("h")
+    txt = d["metar"].str.upper()
+    d["chuva"] = txt.str.contains(r"(?:^|\s)[+-]?(?:VC)?(?:TS|SH)?RA\b|(?:^|\s)[+-]?DZ\b", regex=True)
+    d["forte"] = txt.str.contains(r"(?:^|\s)\+(?:TS|SH)?RA\b", regex=True)
+    d["trovoada"] = txt.str.contains(r"(?:^|\s)[+-]?(?:VC)?TS", regex=True)
+    h = d.groupby(["icao", "nome", "hora"])[["chuva", "forte", "trovoada"]].any().reset_index()
+    return h.groupby(["icao", "nome"])[["chuva", "forte", "trovoada"]].sum().reset_index().rename(
+        columns={"chuva": "horas_chuva", "forte": "horas_chuva_forte", "trovoada": "horas_trovoada"})

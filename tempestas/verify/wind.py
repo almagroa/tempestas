@@ -32,6 +32,7 @@ class WindResult:
     grids: dict[str, xr.DataArray] = field(default_factory=dict)   # máximo no período (m/s)
     stations: pd.DataFrame | None = None                            # máximos por estação/aeroporto
     skipped: dict[str, str] = field(default_factory=dict)
+    metar_weather: pd.DataFrame | None = None                      # horas com chuva/trovoada por aeroporto
 
 
 def _open_hourly(path: Path) -> xr.Dataset:
@@ -123,8 +124,27 @@ def stations_period_max(cfg: Config, start: date, end: date) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True).sort_values("rajada_max_ms", ascending=False)
 
 
+def metar_weather(cfg: Config, start: date, end: date) -> pd.DataFrame:
+    from tempestas.download.metar import weather_hours
+
+    data = cfg.paths["work_dir"] / "dados" / "METAR"
+    files = [data / f"METAR_RS_{p.year}{p.month:02d}.csv" for p in pd.period_range(start, end, freq="M")]
+    files = [f for f in files if f.exists()]
+    if not files:
+        raise FileNotFoundError("sem METAR no período")
+    df = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
+    df["time_utc"] = pd.to_datetime(df["time_utc"], utc=True)
+    t0 = pd.Timestamp(start, tz="UTC")
+    t1 = pd.Timestamp(end, tz="UTC") + pd.Timedelta(days=1)
+    return weather_hours(df[(df.time_utc >= t0) & (df.time_utc < t1)])
+
+
 def characterize_wind(cfg: Config, start: date, end: date) -> WindResult:
     res = WindResult(start, end)
+    try:
+        res.metar_weather = metar_weather(cfg, start, end)
+    except (FileNotFoundError, KeyError) as exc:
+        log.warning("METAR (tempo presente) ignorado: %s", exc)
     for product in ("ERA5", "ERA5-Land"):
         try:
             res.grids.update(era5_period_max(cfg, product, start, end))
