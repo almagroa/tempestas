@@ -27,7 +27,7 @@ CRED_DIR = Path.home() / ".tempestas"
 
 # nomes possíveis dos campos na resposta (a API não documenta o esquema)
 _FIELD_CANDIDATES = {
-    "codigo": ["codestacao", "cod_estacao", "codigo", "id_estacao", "codEstacao"],
+    "codigo": ["cod.estacao", "codestacao", "cod_estacao", "codigo", "id_estacao", "codEstacao"],
     "estacao": ["nomeestacao", "nome", "estacao", "nomeEstacao"],
     "lat": ["latitude", "lat"],
     "lon": ["longitude", "lon", "long"],
@@ -79,9 +79,11 @@ def normalize(records, tz_offset_hours: float = 0.0) -> pd.DataFrame:
     if missing:
         raise KeyError(f"campos não encontrados na resposta do Cemaden: {missing}; colunas: {list(df.columns)}")
     if m["sensor"] is not None:
-        df = df[df[m["sensor"]].astype(str).str.strip().isin(["10", "10.0"])]  # 10 = chuva
-        if df.empty:
-            return pd.DataFrame()
+        sens = df[m["sensor"]].astype(str).str.strip().str.lower()
+        if sens.isin(["10", "10.0"]).any():
+            df = df[sens.isin(["10", "10.0"])]  # 10 = chuva
+        elif sens.str.contains("chuva").any():
+            df = df[sens.str.contains("chuva") & ~sens.str.contains("intensidade")]
     t = pd.to_datetime(df[m["time"]], errors="coerce")
     if getattr(t.dt, "tz", None) is None:
         t = (t - pd.Timedelta(hours=tz_offset_hours)).dt.tz_localize("UTC")
