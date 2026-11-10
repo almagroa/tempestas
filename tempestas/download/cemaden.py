@@ -104,7 +104,7 @@ def fetch(start: date, end: date, uf: str = "RS", token: str | None = None, time
 
     token = token or get_token()
     params = {
-        "uf": uf, "rede": "11",
+        "uf": uf, "rede": "11", "sensor": "10",  # 10 = chuva
         "inicio": f"{start:%Y%m%d}0000",
         "fim": f"{end + timedelta(days=1):%Y%m%d}0000",
     }
