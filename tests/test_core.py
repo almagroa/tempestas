@@ -171,3 +171,19 @@ def test_qc_wind():
     assert out["gust_ms"].tolist()[1] == 30  # rajada convectiva mantida
     assert out["gust_ms"].isna().tolist() == [False, False, False, True, True, False]  # < médio; > 60
     assert n == 3
+
+
+def test_qc_wind_stuck_gust():
+    import pandas as pd
+
+    from tempestas.verify.wind import qc_wind
+
+    t = pd.date_range("2026-10-15 15:00", periods=5, freq="h", tz="UTC")
+    lavras = pd.DataFrame({"codigo": "B853", "time_utc": t, "wind_ms": [8, 10.1, 3.6, 3.3, 3.0],
+                           "gust_ms": [12, 29.0, 29.8, 31.1, 6.7], "precip_mm": 0.0})
+    borja = pd.DataFrame({"codigo": "SB", "time_utc": t, "wind_ms": [4, 3, 6, 5, 4],
+                          "gust_ms": [8, 33.0, 12, 9, 8], "precip_mm": [0, 14.2, 7.9, 0, 0]})
+    out, _ = qc_wind(pd.concat([lavras, borja], ignore_index=True))
+    lv = out[out.codigo == "B853"]["gust_ms"].tolist()
+    assert [pd.isna(v) for v in lv] == [False, True, True, True, False]  # 29,0, 29,8 e 31,1 descartadas
+    assert out[out.codigo == "SB"]["gust_ms"].max() == 33.0

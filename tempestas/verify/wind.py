@@ -86,7 +86,8 @@ def era5_period_max(cfg: Config, product: str, start: date, end: date) -> dict[s
 WIND_QC_TEXT = (
     "Controle de qualidade das estações: descartados vento médio acima de 40 m/s, rajada acima de 60 m/s, "
     "rajada menor que o vento médio da mesma hora e picos isolados de vento médio (acima de 20 m/s com as "
-    "horas vizinhas abaixo da metade). Rajadas convectivas isoladas são mantidas."
+    "horas vizinhas abaixo da metade) e sequências de 2 horas ou mais com rajada acima de 25 m/s, vento médio "
+    "abaixo de 5 m/s e sem chuva, com as horas vizinhas de fator de rajada alto (sensor de rajada travado). Rajadas convectivas isoladas são mantidas."
 )
 ERA5_NOTE = (
     "A rajada do ERA5 é uma estimativa da reanálise numa grade de cerca de 30 km e suaviza rajadas convectivas "
@@ -105,6 +106,16 @@ def qc_wind(df: pd.DataFrame, wind: str = "wind_ms", gust: str = "gust_ms", key:
     nxt = d.groupby(key)[wind].shift(-1)
     neigh = pd.concat([prev, nxt], axis=1).max(axis=1)
     bad_w |= (w > 20) & neigh.notna() & (neigh < w / 2)
+    # rajada forte com vento fraco e sem chuva, por 2+ horas seguidas: sensor travado
+    dry = d["precip_mm"].fillna(0) <= 0 if "precip_mm" in d else pd.Series(True, index=d.index)
+    sus = (g > 25) & (w < 5) & dry
+    run_id = (sus != sus.groupby(d[key]).shift(1)).cumsum()
+    run_len = sus.groupby([d[key], run_id]).transform("sum")
+    stuck = sus & (run_len >= 2)
+    # estende às horas vizinhas da sequência com rajada forte e fator de rajada alto, sem chuva
+    near = stuck.groupby(d[key]).shift(1, fill_value=False) | stuck.groupby(d[key]).shift(-1, fill_value=False)
+    stuck |= near & (g > 25) & (g > 2.5 * w) & dry
+    bad_g |= stuck
     n = int(bad_w.sum() + bad_g.sum())
     d.loc[bad_w, wind] = float("nan")
     d.loc[bad_g, gust] = float("nan")
