@@ -33,6 +33,7 @@ _FIELD_CANDIDATES = {
     "lon": ["longitude", "lon", "long"],
     "time": ["datahora", "data_hora", "dataHora", "datahoraleitura", "data"],
     "precip_mm": ["valormedida", "valor", "chuva", "valorMedida", "medida"],
+    "sensor": ["id_sensor", "sensor", "idsensor"],
     "municipio": ["municipio", "cidade"],
 }
 
@@ -77,6 +78,10 @@ def normalize(records, tz_offset_hours: float = 0.0) -> pd.DataFrame:
     missing = [k for k in ("codigo", "time", "precip_mm") if m[k] is None]
     if missing:
         raise KeyError(f"campos não encontrados na resposta do Cemaden: {missing}; colunas: {list(df.columns)}")
+    if m["sensor"] is not None:
+        df = df[df[m["sensor"]].astype(str).str.strip().isin(["10", "10.0"])]  # 10 = chuva
+        if df.empty:
+            return pd.DataFrame()
     t = pd.to_datetime(df[m["time"]], errors="coerce")
     if getattr(t.dt, "tz", None) is None:
         t = (t - pd.Timedelta(hours=tz_offset_hours)).dt.tz_localize("UTC")
@@ -84,11 +89,11 @@ def normalize(records, tz_offset_hours: float = 0.0) -> pd.DataFrame:
         t = t.dt.tz_convert("UTC")
     out = pd.DataFrame({
         "time_utc": t,
-        "precip_mm": pd.to_numeric(df[m["precip_mm"]], errors="coerce"),
+        "precip_mm": pd.to_numeric(df[m["precip_mm"]].astype(str).str.replace(",", "."), errors="coerce"),
         "codigo": df[m["codigo"]].astype(str),
-        "estacao": df[m["estacao"]].astype(str).str.upper() if m["estacao"] else df[m["codigo"]].astype(str),
-        "lat": pd.to_numeric(df[m["lat"]], errors="coerce") if m["lat"] else None,
-        "lon": pd.to_numeric(df[m["lon"]], errors="coerce") if m["lon"] else None,
+        "estacao": (df[m["estacao"]] if m["estacao"] else df[m["municipio"]] if m["municipio"] else df[m["codigo"]]).astype(str).str.upper(),
+        "lat": pd.to_numeric(df[m["lat"]].astype(str).str.replace(",", "."), errors="coerce") if m["lat"] else None,
+        "lon": pd.to_numeric(df[m["lon"]].astype(str).str.replace(",", "."), errors="coerce") if m["lon"] else None,
     })
     return out.dropna(subset=["time_utc"])
 
@@ -104,8 +109,29 @@ def fetch(start: date, end: date, uf: str = "RS", token: str | None = None, time
         "fim": f"{end + timedelta(days=1):%Y%m%d}0000",
     }
     r = requests.get(f"{PED}/pcds/dados_rede", params=params, headers={"token": token}, timeout=timeout)
-    r.raise_for_status()
-    return r.json()
+    if r.status_code >= 400:
+        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+    return parse_body(r.text)
+
+
+def parse_body(text: str):
+    """A API devolve 'string': pode ser JSON ou texto delimitado (CSV). Aceita os dois."""
+    import io
+
+    text = text.strip()
+    if not text:
+        return pd.DataFrame()
+    if text[0] in "[{":
+        data = json.loads(text)
+        if isinstance(data, dict):
+            data = data.get("data", data.get("dados", [data]))
+        return pd.json_normalize(data)
+    lines = text.splitlines()
+    sep = ";" if lines[0].count(";") >= lines[0].count(",") else ","
+    try:
+        return pd.read_csv(io.StringIO(text), sep=sep, dtype=str)
+    except Exception:
+        raise RuntimeError(f"resposta não reconhecida: {text[:300]!r}") from None
 
 
 def to_hourly(df: pd.DataFrame) -> pd.DataFrame:
@@ -119,13 +145,13 @@ def to_hourly(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def update_recent(out_root, days: int = 35, uf: str = "RS", tz_offset_hours: float = 0.0) -> Path:
-    """Baixa os últimos ``days`` dias (em blocos de 7 dias) e salva/une por ano."""
+    """Baixa os últimos ``days`` dias, um pedido por dia (limite da API), e salva/une por ano."""
     end = date.today()
     token = get_token()
     frames = []
     s = end - timedelta(days=days)
     while s <= end:
-        e = min(s + timedelta(days=6), end)
+        e = s  # dados_rede aceita no máximo 1 dia por pedido
         try:
             frames.append(to_hourly(normalize(fetch(s, e, uf, token), tz_offset_hours)))
         except Exception as exc:
