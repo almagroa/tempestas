@@ -107,52 +107,86 @@ def to_hourly(df: pd.DataFrame) -> pd.DataFrame:
     return out.drop(columns="n")
 
 
-def update_recent(out_root, days: int = 35, uf: str = "RS") -> Path:
-    """Baixa os últimos ``days`` dias de todas as telemétricas da UF e salva por ano."""
+def _station_hourly(code: str, start: date, end: date) -> pd.DataFrame | None:
+    """Horárias de uma estação em janelas de 7 dias. None = estação sem pluviômetro."""
+    parts = []
+    s0 = start
+    while s0 <= end:  # janelas de 7 dias: o servidor da ANA dá timeout em pedidos longos
+        e0 = min(s0 + timedelta(days=6), end)
+        try:
+            p = fetch_station(code, s0, e0, timeout=60)
+        except Exception as exc:
+            log.warning("ANA %s %s–%s: %s", code, s0, e0, exc)
+            p = None
+        if s0 == start and p is not None and (p.empty or p["precip_mm"].isna().all()):
+            return None  # primeira janela respondeu sem chuva: fluviométrica, não insiste
+        if p is not None and not p.empty:
+            parts.append(p)
+        s0 = e0 + timedelta(days=1)
+    return to_hourly(pd.concat(parts, ignore_index=True)) if parts else pd.DataFrame()
+
+
+def update_recent(out_root, days: int = 35, uf: str = "RS", workers: int = 6) -> Path:
+    """Baixa os últimos ``days`` dias de todas as telemétricas da UF e salva por ano.
+
+    Grava cada estação ao terminar (pasta ``parcial_<início>_<fim>``), então uma rodada
+    interrompida retoma de onde parou. Estações sem chuva na primeira janela são puladas.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     end = date.today()
     start = end - timedelta(days=days)
-    st = list_stations(uf, cache=Path(out_root) / "ANA" / f"estacoes_{uf}.csv")
+    root = Path(out_root) / "ANA"
+    st = list_stations(uf, cache=root / f"estacoes_{uf}.csv")
     if st.empty:
         raise RuntimeError("lista de estações telemétricas da ANA vazia")
     code_col = next(c for c in st.columns if c.lower().startswith("codestacao") or c.lower() == "codigo")
     name_col = next((c for c in st.columns if c.lower().startswith("nomeestacao")), code_col)
-    frames = []
-    log.info("ANA: %d estações telemétricas na área", len(st))
-    for row in st.itertuples(index=False):
-        code = str(getattr(row, code_col))
-        try:
-            parts = []
-            s0 = start
-            while s0 <= end:  # janelas de 7 dias: o servidor da ANA dá timeout em pedidos longos
-                e0 = min(s0 + timedelta(days=6), end)
-                try:
-                    parts.append(fetch_station(code, s0, e0, timeout=60))
-                except Exception as exc:
-                    log.warning("ANA %s %s–%s: %s", code, s0, e0, exc)
-                s0 = e0 + timedelta(days=1)
-            parts = [p for p in parts if not p.empty]
-            h = to_hourly(pd.concat(parts, ignore_index=True)) if parts else pd.DataFrame()
-        except Exception as exc:
-            log.warning("ANA %s: %s", code, exc)
-            continue
-        if h.empty:
-            continue
+    part_dir = root / f"parcial_{start:%Y%m%d}_{end:%Y%m%d}"
+    part_dir.mkdir(parents=True, exist_ok=True)
+    meta = {str(getattr(r, code_col)): r for r in st.itertuples(index=False)}
+    todo = [c for c in meta if not (part_dir / f"{c}.csv").exists()]
+    log.info("ANA: %d estações na área, %d a baixar (%s)", len(meta), len(todo), part_dir)
+
+    def job(code):
+        h = _station_hourly(code, start, end)
+        row = meta[code]
+        if h is None or h.empty:
+            (part_dir / f"{code}.csv").write_text("")  # marca como feita (sem chuva)
+            return code, 0
         h["estacao"] = str(getattr(row, name_col)).upper()
         h["lat"] = getattr(row, "Latitude", None)
         h["lon"] = getattr(row, "Longitude", None)
         h["uf"] = uf
-        frames.append(h)
+        tmp = part_dir / f"{code}.tmp"
+        h.to_csv(tmp, index=False)
+        tmp.replace(part_dir / f"{code}.csv")
+        return code, len(h)
+
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = [ex.submit(job, c) for c in todo]
+        for f in as_completed(futs):
+            done += 1
+            try:
+                f.result()
+            except Exception as exc:
+                log.warning("ANA: %s", exc)
+            if done % 50 == 0:
+                log.info("ANA: %d/%d estações", done, len(todo))
+
+    frames = [pd.read_csv(f, dtype={"codigo": str}) for f in sorted(part_dir.glob("*.csv")) if f.stat().st_size]
     if not frames:
         raise RuntimeError("nenhum dado de chuva retornado pela ANA")
     new = pd.concat(frames, ignore_index=True)
-    out = Path(out_root) / "ANA" / f"ANA_{uf}_{end.year}.csv"
-    out.parent.mkdir(parents=True, exist_ok=True)
+    new["time_utc"] = pd.to_datetime(new["time_utc"], utc=True)
+    out = root / f"ANA_{uf}_{end.year}.csv"
     if out.exists():
-        old = pd.read_csv(out)
+        old = pd.read_csv(out, dtype={"codigo": str})
         old["time_utc"] = pd.to_datetime(old["time_utc"], utc=True)
         new = pd.concat([old, new], ignore_index=True)
     new = new[new["time_utc"].dt.year == end.year]
     new = new.drop_duplicates(["codigo", "time_utc"], keep="last").sort_values(["codigo", "time_utc"])
     new.to_csv(out, index=False)
-    log.info("ANA: %s, %d estações, até %s", out, new["codigo"].nunique(), new["time_utc"].max())
+    log.info("ANA: %s, %d estações com chuva, até %s", out, new["codigo"].nunique(), new["time_utc"].max())
     return out
