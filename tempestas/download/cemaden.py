@@ -44,7 +44,7 @@ def get_token(timeout: int = 60) -> str:
     if cred_file.exists():
         import requests
 
-        cred = json.loads(cred_file.read_text(encoding="utf-8"))
+        cred = json.loads(cred_file.read_text(encoding="utf-8-sig"))
         r = requests.post(SGAA_TOKEN, json={"email": cred["email"], "password": cred["password"]}, timeout=timeout)
         r.raise_for_status()
         body = r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text
@@ -53,7 +53,7 @@ def get_token(timeout: int = 60) -> str:
             raise RuntimeError("SGAA não devolveu token")
         return token
     if tok_file.exists():
-        return tok_file.read_text(encoding="utf-8").strip()
+        return tok_file.read_text(encoding="utf-8-sig").strip()
     raise FileNotFoundError(f"sem credenciais do Cemaden em {CRED_DIR} (cemaden_token.txt ou cemaden.json)")
 
 
