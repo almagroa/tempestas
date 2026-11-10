@@ -307,6 +307,11 @@ def build_event_report(
                    [[r.rede, str(r.estacao).title(), _num(r.rajada_max_ms, 1), _num(r.rajada_max_ms * 3.6, 0),
                      _num(r.vento_max_ms, 1)] for r in top.itertuples()],
                    widths=[1.8, 6.0, 2.8, 2.5, 3.2])
+            st = wind.stations
+            if "rajada_suspeita" in st and st["rajada_suspeita"].fillna(False).astype(bool).any():
+                sus = st.loc[st["rajada_suspeita"].fillna(False).astype(bool), "estacao"]
+                doc.add_paragraph("Rajada desconsiderada por suspeita de defeito do anemômetro de rajada (mantidas só as "
+                                  "rajadas coerentes com o vento médio): " + ", ".join(x.title() for x in sus) + ".")
         if wind.metar_weather is not None and len(wind.metar_weather):
             doc.add_paragraph(
                 "Tempo presente nos aeroportos (METAR): horas com registro de chuva, chuva forte e trovoada. "

@@ -87,7 +87,9 @@ WIND_QC_TEXT = (
     "Controle de qualidade das estações: descartados vento médio acima de 40 m/s, rajada acima de 60 m/s, "
     "rajada menor que o vento médio da mesma hora e picos isolados de vento médio (acima de 20 m/s com as "
     "horas vizinhas abaixo da metade) e sequências de 2 horas ou mais com rajada acima de 25 m/s, vento médio "
-    "abaixo de 5 m/s e sem chuva, com as horas vizinhas de fator de rajada alto (sensor de rajada travado). Rajadas convectivas isoladas são mantidas."
+    "abaixo de 5 m/s e sem chuva, com as horas vizinhas de fator de rajada alto (sensor de rajada travado). Estações com muitas horas de rajada acima de 25 m/s e "
+    "fator de rajada acima de 4 no período têm o anemômetro de rajada tratado como defeituoso: ficam só as "
+    "rajadas coerentes com o vento médio. Rajadas convectivas isoladas são mantidas."
 )
 ERA5_NOTE = (
     "A rajada do ERA5 é uma estimativa da reanálise numa grade de cerca de 30 km e suaviza rajadas convectivas "
@@ -116,6 +118,14 @@ def qc_wind(df: pd.DataFrame, wind: str = "wind_ms", gust: str = "gust_ms", key:
     near = stuck.groupby(d[key]).shift(1, fill_value=False) | stuck.groupby(d[key]).shift(-1, fill_value=False)
     stuck |= near & (g > 25) & (g > 2.5 * w) & dry
     bad_g |= stuck
+    # por estação: muitas horas com rajada forte e fator de rajada > 4 = anemômetro de rajada com defeito;
+    # nessas estações só ficam as rajadas coerentes com o vento médio (fator ≤ 2)
+    odd = (g > 25) & (g > 4 * w)
+    n_odd = odd.groupby(d[key]).transform("sum")
+    n_hours = d.groupby(key)[gust].transform("count")
+    faulty = (n_odd > 10) | ((n_odd >= 3) & (n_odd > 0.05 * n_hours))
+    bad_g |= faulty & g.notna() & ~(g <= 2 * w)
+    d.attrs["rajada_suspeita"] = sorted(d.loc[faulty, key].astype(str).unique())
     n = int(bad_w.sum() + bad_g.sum())
     d.loc[bad_w, wind] = float("nan")
     d.loc[bad_g, gust] = float("nan")
@@ -138,14 +148,18 @@ def stations_period_max(cfg: Config, start: date, end: date) -> pd.DataFrame:
             df["time_utc"] = pd.to_datetime(df["time_utc"], utc=True)
             df = df[(df.time_utc > t0) & (df.time_utc <= t1)]
             df, n_bad = qc_wind(df)
+            suspect = df.attrs.get("rajada_suspeita", [])
             if n_bad:
                 log.info("vento INMET: %d valores descartados no controle de qualidade", n_bad)
+            if suspect:
+                log.info("vento INMET: rajada suspeita (sensor) em %s", ", ".join(suspect))
             g = df.groupby(["codigo", "estacao", "lat", "lon"])
             agg = g.agg(vento_max_ms=("wind_ms", "max"), rajada_max_ms=("gust_ms", "max")).reset_index()
             idx = df.loc[df["gust_ms"].notna()].groupby("codigo")["gust_ms"].idxmax()
             when = df.loc[idx, ["codigo", "time_utc"]].rename(columns={"time_utc": "quando_rajada_utc"})
             agg = agg.merge(when, on="codigo", how="left")
             agg.insert(0, "rede", "INMET")
+            agg["rajada_suspeita"] = agg["codigo"].astype(str).isin(suspect)
             frames.append(agg)
 
     months = pd.period_range(start, end, freq="M")

@@ -187,3 +187,23 @@ def test_qc_wind_stuck_gust():
     lv = out[out.codigo == "B853"]["gust_ms"].tolist()
     assert [pd.isna(v) for v in lv] == [False, True, True, True, False]  # 29,0, 29,8 e 31,1 descartadas
     assert out[out.codigo == "SB"]["gust_ms"].max() == 33.0
+
+
+def test_qc_wind_faulty_station():
+    import numpy as np
+    import pandas as pd
+
+    from tempestas.verify.wind import qc_wind
+
+    t = pd.date_range("2026-10-01", periods=200, freq="h", tz="UTC")
+    w = np.full(200, 3.5)
+    g = np.full(200, 8.0)
+    g[::15] = 30.0        # 14 horas isoladas de 30 m/s com médio 3,5: sensor com defeito
+    w[100], g[100] = 18.0, 22.0  # vento forte coerente: mantém
+    bad = pd.DataFrame({"codigo": "B853", "time_utc": t, "wind_ms": w, "gust_ms": g, "precip_mm": 0.6})
+    ok = pd.DataFrame({"codigo": "A", "time_utc": t, "wind_ms": 4.0, "gust_ms": 9.0, "precip_mm": 0.0})
+    ok.loc[50, ["gust_ms", "precip_mm"]] = [33.0, 14.2]  # frente de rajada convectiva: mantém
+    out, _ = qc_wind(pd.concat([bad, ok], ignore_index=True))
+    assert out.attrs["rajada_suspeita"] == ["B853"]
+    assert out[out.codigo == "B853"]["gust_ms"].max() == 22.0
+    assert out[out.codigo == "A"]["gust_ms"].max() == 33.0
