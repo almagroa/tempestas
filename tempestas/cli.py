@@ -10,6 +10,8 @@ import logging
 from datetime import date, timedelta
 from pathlib import Path
 
+import pandas as pd
+
 from tempestas.config import load_config
 from tempestas.verify.event import verify_event
 
@@ -43,15 +45,21 @@ def _cmd_baixar(args) -> None:
     cfg = load_config(args.config)
     root = Path(args.saida or cfg.paths["work_dir"] / "dados")
     today = date.today()
+    desde = date.fromisoformat(args.desde) if args.desde else None
+    recent_days = (today - desde).days + 1 if desde else 35
     if "era5" in args.fontes:
         from tempestas.download import era5
-        era5.update(root, days_back=args.dias)
+        lag = 5
+        dias = max(args.dias, (today - timedelta(days=lag) - desde).days + 1) if desde else args.dias
+        era5.update(root, days_back=dias, lag_days=lag)
     if "metar" in args.fontes:
         from tempestas.download import metar
-        metar.update_month(root, today.year, today.month)
-        if today.day <= 7:  # fecha o mês anterior
-            prev = (today.replace(day=1) - timedelta(days=1))
-            metar.update_month(root, prev.year, prev.month)
+        first = desde or (today.replace(day=1) - timedelta(days=1) if today.day <= 7 else today)
+        for p in pd.period_range(first.replace(day=1), today, freq="M"):
+            try:
+                metar.update_month(root, p.year, p.month)
+            except Exception as exc:
+                logging.warning("METAR %s: %s", p, exc)
     if "inmet" in args.fontes:
         from tempestas.download import inmet
         try:
@@ -59,19 +67,19 @@ def _cmd_baixar(args) -> None:
         except Exception as exc:
             logging.warning("INMET portal: %s", exc)
         try:
-            inmet.update_recent(root)  # completa os dias recentes pela API
+            inmet.update_recent(root, days=recent_days)  # completa os dias recentes pela API
         except Exception as exc:
             logging.warning("INMET API: %s", exc)
     if "ana" in args.fontes:
         from tempestas.download import ana
         try:
-            ana.update_recent(root)
+            ana.update_recent(root, days=recent_days)
         except Exception as exc:
             logging.warning("ANA: %s", exc)
     if "cemaden" in args.fontes:
         from tempestas.download import cemaden
         try:
-            cemaden.update_recent(root)
+            cemaden.update_recent(root, days=recent_days)
         except Exception as exc:
             logging.warning("Cemaden: %s", exc)
     print(f"Downloads concluídos em {root}")
@@ -95,6 +103,7 @@ def main(argv: list[str] | None = None) -> None:
     bx = sub.add_parser("baixar", help="atualiza ERA5/ERA5-Land, METAR e INMET")
     bx.add_argument("--fontes", nargs="*", default=["era5", "metar", "inmet", "ana", "cemaden"], choices=["era5", "metar", "inmet", "ana", "cemaden"])
     bx.add_argument("--dias", type=int, default=15, help="janela de dias do ERA5 a garantir")
+    bx.add_argument("--desde", help="baixar desde esta data (AAAA-MM-DD), para preencher eventos passados")
     bx.add_argument("--saida", help="pasta de dados (padrão: <work_dir>/dados)")
     bx.set_defaults(func=_cmd_baixar)
 
