@@ -83,3 +83,50 @@ def inmet_period_totals(cfg: Config, start: date, end: date) -> pd.DataFrame:
     if tot.empty:
         raise ValueError(f"nenhuma estação INMET com dados completos em {start}–{end}")
     return tot
+
+
+# Coordenadas aproximadas dos aeroportos do RS com METAR (graus decimais)
+AIRPORTS_RS = {
+    "SBPA": ("Porto Alegre", -29.994, -51.171),
+    "SBCO": ("Canoas", -29.946, -51.144),
+    "SBCX": ("Caxias do Sul", -29.197, -51.188),
+    "SBSM": ("Santa Maria", -29.711, -53.688),
+    "SBPF": ("Passo Fundo", -28.244, -52.327),
+    "SBPK": ("Pelotas", -31.718, -52.328),
+    "SBRG": ("Rio Grande", -32.082, -52.166),
+    "SBUG": ("Uruguaiana", -29.782, -57.038),
+    "SBBG": ("Bagé", -31.390, -54.112),
+    "SBNM": ("Santo Ângelo", -28.282, -54.169),
+}
+
+
+def station_inventory(cfg: Config, start: date, end: date, complete: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Todas as estações conhecidas de todas as redes, com a situação no período.
+
+    Colunas: rede, codigo, estacao, lat, lon, obs_mm (só para estações com o
+    período completo), situacao ('completa', 'incompleta/sem dados', 'aeroporto').
+    """
+    rows = []
+    for network in NETWORKS:
+        frames = [_READERS[network](cfg, y) for y in range(start.year, end.year + 1)]
+        frames = [f for f in frames if not f.empty]
+        if not frames:
+            continue
+        meta = pd.concat(frames, ignore_index=True)[["codigo", "estacao", "lat", "lon"]]
+        meta = meta.dropna(subset=["lat", "lon"]).drop_duplicates("codigo")
+        meta.insert(0, "rede", network)
+        rows.append(meta)
+    inv = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=["rede", "codigo", "estacao", "lat", "lon"])
+    inv["codigo"] = inv["codigo"].astype(str)
+    if complete is not None and len(complete):
+        c = complete[["rede", "codigo", "obs_mm"]].copy()
+        c["codigo"] = c["codigo"].astype(str)
+        inv = inv.merge(c, on=["rede", "codigo"], how="left")
+    else:
+        inv["obs_mm"] = float("nan")
+    inv["situacao"] = inv["obs_mm"].notna().map({True: "completa", False: "incompleta/sem dados"})
+    ap = pd.DataFrame([
+        {"rede": "METAR", "codigo": k, "estacao": v[0], "lat": v[1], "lon": v[2], "obs_mm": float("nan"), "situacao": "aeroporto"}
+        for k, v in AIRPORTS_RS.items()
+    ])
+    return pd.concat([inv, ap], ignore_index=True)

@@ -13,7 +13,7 @@ from tempestas.io.forecasts import forecast_for_period
 from tempestas.io.observed import observed_total
 from tempestas.io.standardize import regrid, target_grid
 from tempestas.mask import region_masks
-from tempestas.io.stations import NETWORKS, period_totals
+from tempestas.io.stations import NETWORKS, period_totals, station_inventory
 from tempestas.verify.metrics import point_table, score_table
 
 log = logging.getLogger(__name__)
@@ -30,6 +30,7 @@ class EventResult:
     skipped: dict[str, str] = field(default_factory=dict)
     stations: pd.DataFrame | None = None
     station_scores: pd.DataFrame | None = None
+    inventory: pd.DataFrame | None = None
 
 
 def verify_event(
@@ -84,4 +85,9 @@ def verify_event(
         score_frames.append(sc)
     stations = pd.concat(station_frames, ignore_index=True) if station_frames else None
     station_scores = pd.concat(score_frames, ignore_index=True) if score_frames else None
-    return EventResult(start, end, observed, forecasts, masks, scores, skipped, stations, station_scores)
+    try:
+        inventory = station_inventory(cfg, start, end, stations)
+    except Exception as exc:  # inventário é só para o mapa; não pode derrubar a verificação
+        log.warning("inventário de estações: %s", exc)
+        inventory = None
+    return EventResult(start, end, observed, forecasts, masks, scores, skipped, stations, station_scores, inventory)

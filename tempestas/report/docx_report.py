@@ -15,7 +15,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Cm, Pt, RGBColor
 
 from tempestas.mask import DEFAULT_REGIONS
-from tempestas.report.maps import daily_series, event_maps, skill_by_lead, station_maps, wind_maps
+from tempestas.report.maps import daily_series, event_maps, network_map, skill_by_lead, station_maps, wind_maps
 from tempestas.verify.daily import summarize_by_lead
 from tempestas.verify.event import EventResult
 from tempestas.verify.wind import WindResult
@@ -202,6 +202,25 @@ def build_event_report(
         doc.add_paragraph()
 
     sec = 6
+    if result.inventory is not None and len(result.inventory):
+        _heading(doc, f"{sec}. Rede de estações")
+        sec += 1
+        inv_png = network_map(
+            result.inventory, result.observed[obs_ref], fig_dir / "rede_estacoes.png", bg_name=obs_ref,
+            outline_path=DEFAULT_REGIONS, mask=result.masks["RS"], suptitle=f"Estações no RS – chuva de {period}",
+        )
+        doc.add_picture(str(inv_png), width=Cm(15.5))
+        cnt = result.inventory.groupby(["rede", "situacao"]).size().unstack(fill_value=0)
+        doc.add_paragraph(
+            "Todas as estações disponíveis, por rede. Símbolos preenchidos: estações com registro completo no período, "
+            "coloridas pela chuva acumulada (mesma escala do fundo). Vazados: sem registro completo no período "
+            "(falhas ou dados ainda não publicados). Estrelas: aeroportos (METAR), usados para vento e tempo presente."
+        ).runs[0].italic = True
+        _table(doc, ["Rede", "Com dados completos", "Sem dados completos", "Aeroportos"],
+               [[r, int(cnt.loc[r].get("completa", 0)), int(cnt.loc[r].get("incompleta/sem dados", 0)),
+                 int(cnt.loc[r].get("aeroporto", 0))] for r in cnt.index], widths=[3, 4, 4, 3])
+        doc.add_paragraph()
+
     if result.station_scores is not None and not result.station_scores.empty:
         _heading(doc, f"{sec}. Comparação com estações")
         sec += 1

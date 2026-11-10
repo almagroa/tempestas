@@ -261,3 +261,50 @@ def station_maps(
     fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     return out_path
+
+
+NETWORK_MARKERS = {"Cemaden": "o", "INMET": "s", "ANA": "^", "METAR": "*"}
+
+
+def network_map(inventory, background: xr.DataArray, out_path, bg_name: str = "IMERG", outline_path=None,
+                mask=None, suptitle: str = "") -> Path:
+    """Todas as estações de todas as redes num só mapa.
+
+    Símbolo = rede. Preenchido e colorido pela chuva = período completo;
+    vazado em cinza = estação sem dados completos no período; estrela = aeroporto (METAR, sem medida de chuva).
+    """
+    from matplotlib.lines import Line2D
+
+    outline = _outline_lines(outline_path)
+    fig, ax = plt.subplots(figsize=(8.2, 7.2))
+    _panel(ax, background, PRECIP_LEVELS, "Blues", outline, f"Fundo: {bg_name}", mask)
+    norm = BoundaryNorm(PRECIP_LEVELS, plt.get_cmap("Blues").N, extend="both")
+    handles = []
+    sc = None
+    for net, g in inventory.groupby("rede", sort=False):
+        mk = NETWORK_MARKERS.get(net, "D")
+        size = 90 if mk == "*" else 26
+        miss = g[g["obs_mm"].isna()]
+        ok = g[g["obs_mm"].notna()]
+        if len(miss):
+            face = "#f2c94c" if net == "METAR" else "none"
+            ax.scatter(miss["lon"], miss["lat"], marker=mk, s=size, facecolors=face,
+                       edgecolors="#6e7781" if net != "METAR" else INK, linewidths=0.8, zorder=3)
+        if len(ok):
+            sc = ax.scatter(ok["lon"], ok["lat"], marker=mk, s=size, c=ok["obs_mm"], cmap="Blues", norm=norm,
+                            edgecolors=INK, linewidths=0.5, zorder=4)
+        n_ok, n_all = len(ok), len(g)
+        label = f"{net}: {n_all} aeroportos (vento e tempo presente)" if net == "METAR" else f"{net}: {n_ok} de {n_all} com dados completos"
+        handles.append(Line2D([], [], marker=mk, ls="", ms=9 if mk == "*" else 6, mfc="#f2c94c" if net == "METAR" else "#9ecae1",
+                              mec=INK, label=label))
+    handles.append(Line2D([], [], marker="o", ls="", ms=6, mfc="none", mec="#6e7781", label="vazado = sem dados completos no período"))
+    ax.legend(handles=handles, loc="lower left", fontsize=7.5, frameon=True, framealpha=0.9)
+    if sc is not None:
+        fig.colorbar(sc, ax=ax, shrink=0.75, label="Chuva acumulada (mm)")
+    if suptitle:
+        ax.set_title(suptitle, fontsize=11, color=INK, loc="left")
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    return out_path
