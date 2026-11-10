@@ -31,6 +31,7 @@ MODEL_INFO = {
 OBS_INFO = {
     "IMERG": "NASA GPM IMERG Early v07, estimativa por satélite, 0,1°, diário",
     "INMET": "Estações automáticas do INMET (pluviômetro), horário",
+    "Cemaden": "Pluviômetros automáticos do Cemaden, 10 min a 1 h",
     "ANA": "Estações telemétricas da ANA (pluviômetro), 15 min",
 }
 

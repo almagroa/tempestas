@@ -29,16 +29,18 @@ def _inmet_year(cfg: Config, year: int) -> pd.DataFrame:
     return pd.DataFrame()
 
 
-def _ana_year(cfg: Config, year: int) -> pd.DataFrame:
-    csv = cfg.paths["work_dir"] / "dados" / "ANA" / f"ANA_RS_{year}.csv"
-    if not csv.exists():
-        return pd.DataFrame()
-    df = pd.read_csv(csv, dtype={"codigo": str})
-    df["time_utc"] = pd.to_datetime(df["time_utc"], utc=True)
-    return df
+def _csv_year(folder: str, prefix: str):
+    def reader(cfg: Config, year: int) -> pd.DataFrame:
+        csv = cfg.paths["work_dir"] / "dados" / folder / f"{prefix}_RS_{year}.csv"
+        if not csv.exists():
+            return pd.DataFrame()
+        df = pd.read_csv(csv, dtype={"codigo": str})
+        df["time_utc"] = pd.to_datetime(df["time_utc"], utc=True)
+        return df
+    return reader
 
 
-_READERS = {"INMET": _inmet_year, "ANA": _ana_year}
+_READERS = {"INMET": _inmet_year, "Cemaden": _csv_year("CEMADEN", "CEMADEN"), "ANA": _csv_year("ANA", "ANA")}
 NETWORKS = list(_READERS)
 
 

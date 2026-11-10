@@ -115,3 +115,15 @@ def test_ana_xml_and_hourly():
     h = to_hourly(df)
     assert len(h) == 1 and pd.Timestamp(h.time_utc.iloc[0]) == pd.Timestamp("2026-11-03 14:00", tz="UTC")
     assert np.isnan(h.precip_mm.iloc[0])  # só 2 registros de 15 min: hora incompleta
+
+
+def test_cemaden_normalize():
+    from tempestas.download.cemaden import normalize, to_hourly
+    recs = [{"codestacao": "431490201A", "nomeestacao": "Centro", "latitude": "-30.0", "longitude": "-51.2",
+             "datahora": "2026-11-03 10:10:00", "valormedida": "1.2"},
+            {"codestacao": "431490201A", "nomeestacao": "Centro", "latitude": "-30.0", "longitude": "-51.2",
+             "datahora": "2026-11-03 10:20:00", "valormedida": "0.8"}]
+    df = normalize(recs)
+    assert list(df.columns[:3]) == ["time_utc", "precip_mm", "codigo"]
+    h = to_hourly(df)
+    assert len(h) == 1 and h.precip_mm.iloc[0] == pytest.approx(2.0)
