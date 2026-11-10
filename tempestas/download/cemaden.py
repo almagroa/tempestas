@@ -127,9 +127,14 @@ def parse_body(text: str):
             data = data.get("data", data.get("dados", [data]))
         return pd.json_normalize(data)
     lines = text.splitlines()
-    sep = ";" if lines[0].count(";") >= lines[0].count(",") else ","
+    # a resposta começa com linhas de aviso (ex.: "OBS.: Rede com horario UTC!") antes do cabeçalho
+    start = next((i for i, ln in enumerate(lines) if max(ln.count(";"), ln.count(",")) >= 3), None)
+    if start is None:
+        return pd.DataFrame()  # só aviso, sem dados
+    header = lines[start]
+    sep = ";" if header.count(";") >= header.count(",") else ","
     try:
-        return pd.read_csv(io.StringIO(text), sep=sep, dtype=str)
+        return pd.read_csv(io.StringIO("\n".join(lines[start:])), sep=sep, dtype=str)
     except Exception:
         raise RuntimeError(f"resposta não reconhecida: {text[:300]!r}") from None
 

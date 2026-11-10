@@ -131,7 +131,7 @@ def test_cemaden_normalize():
 
 def test_cemaden_parse_csv_and_json():
     from tempestas.download.cemaden import normalize, parse_body
-    csv = "municipio;codEstacao;uf;nomeEstacao;latitude;longitude;dataHora;valorMedida\nPORTO ALEGRE;431490201A;RS;Centro;-30,03;-51,22;2026-11-03 10:10:00.0;1,2\n"
+    csv = "OBS.: Rede com horario UTC!\nmunicipio;codEstacao;uf;nomeEstacao;latitude;longitude;dataHora;valorMedida\nPORTO ALEGRE;431490201A;RS;Centro;-30,03;-51,22;2026-11-03 10:10:00.0;1,2\n"
     df = normalize(parse_body(csv))
     assert df.precip_mm.iloc[0] == pytest.approx(1.2) and df.lat.iloc[0] == pytest.approx(-30.03)
     js = '{"scroll":"x","data":[{"cidade":"PORTO ALEGRE","codestacao":"1","datahora":"2026-11-03 00:20","id_sensor":10,"latitude":-30,"longitude":-51,"valor":0.4},{"cidade":"PORTO ALEGRE","codestacao":"1","datahora":"2026-11-03 00:20","id_sensor":20,"latitude":-30,"longitude":-51,"valor":99}]}'
