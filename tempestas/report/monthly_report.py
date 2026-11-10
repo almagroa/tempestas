@@ -56,6 +56,15 @@ PROB_METHOD = (
 )
 
 
+def _pct(x: float, dec: int = 0) -> str:
+    """Percentual com vírgula; valores positivos que arredondariam para zero viram "< 1%"."""
+    if x != x:
+        return "–"
+    if 0 < x * 100 < 0.5 * 10 ** -dec:
+        return f"< {10 ** -dec:g}%".replace(".", ",")
+    return f"{x * 100:.{dec}f}%".replace(".", ",")
+
+
 def _event_probabilistic(doc, ens, ev, ref, k, per, fig_dir) -> None:
     obs = ev.observed[ref]
     mask = ev.masks["RS"]
@@ -73,17 +82,17 @@ def _event_probabilistic(doc, ens, ev, ref, k, per, fig_dir) -> None:
                      f"{sm['maximo']:.0f} mm (P10 {sm['p10']:.0f}, mediana {sm['p50']:.0f}, P90 {sm['p90']:.0f} mm). "
                      f"O observado ficou {where}.")
     ap = sm["area_posicao"]
-    lines.append(f"Ponto a ponto, {ap['dentro do leque'] * 100:.0f}% da área do RS teve chuva dentro do leque das "
-                 f"previsões, {ap['acima de todas as previsões'] * 100:.0f}% acima de todas e "
-                 f"{ap['abaixo de todas as previsões'] * 100:.0f}% abaixo de todas.")
+    lines.append(f"Ponto a ponto, {_pct(ap['dentro do leque'])} da área do RS teve chuva dentro do leque das "
+                 f"previsões, {_pct(ap['acima de todas as previsões'])} acima de todas e "
+                 f"{_pct(ap['abaixo de todas as previsões'])} abaixo de todas.")
     for t in sm["limiares"]:
         if t["area_obs"] > 0:
-            lines.append(f"≥ {t['limiar_mm']} mm: observado em {t['area_obs'] * 100:.0f}% da área; ali a probabilidade "
-                         f"prevista média era {t['prob_media_onde_ocorreu'] * 100:.0f}% (máxima no estado "
-                         f"{t['prob_max'] * 100:.0f}%).")
+            lines.append(f"≥ {t['limiar_mm']} mm: observado em {_pct(t['area_obs'])} da área; ali a probabilidade "
+                         f"prevista média era {_pct(t['prob_media_onde_ocorreu'])} (máxima no estado "
+                         f"{_pct(t['prob_max'])}).")
         else:
             lines.append(f"≥ {t['limiar_mm']} mm: não observado; a probabilidade prevista chegou a "
-                         f"{t['prob_max'] * 100:.0f}% e passou de 50% em {t['area_prob_ge_50pct'] * 100:.0f}% da área.")
+                         f"{_pct(t['prob_max'])} e passou de 50% em {_pct(t['area_prob_ge_50pct'])} da área.")
     for ln in lines:
         doc.add_paragraph(ln, style="List Bullet")
     from tempestas.verify.probabilistic import probability
@@ -101,12 +110,12 @@ def _monthly_probabilistic(doc, prob, daily_threshold, fig_dir) -> None:
     pos = prob["position"]
     doc.add_paragraph(
         f"Em todos os dias e pontos do RS com chuva observada ou prevista (≥ 1 mm), a chuva observada ficou dentro do leque das previsões em "
-        f"{pos['dentro do leque'] * 100:.0f}% dos casos, acima de todas em {pos['acima de todas as previsões'] * 100:.0f}% "
-        f"e abaixo de todas em {pos['abaixo de todas as previsões'] * 100:.0f}%."
+        f"{_pct(pos['dentro do leque'])} dos casos, acima de todas em {_pct(pos['acima de todas as previsões'])} "
+        f"e abaixo de todas em {_pct(pos['abaixo de todas as previsões'])}."
     )
     b = prob["brier"]
     _table(doc, ["Limiar (mm/dia)", "Frequência observada", "Brier", "Brier da climatologia", "Ganho (BSS)"],
-           [[f"≥ {r.limiar_mm:g}", f"{r.freq_obs * 100:.1f}%", _num(r.brier, 3), _num(r.brier_clim, 3),
+           [[f"≥ {r.limiar_mm:g}", _pct(r.freq_obs, 1), _num(r.brier, 3), _num(r.brier_clim, 3),
              _num(r.bss, 2)] for r in b.itertuples()], widths=[3, 3.4, 2.2, 3.6, 2.6])
     doc.add_paragraph(
         "Brier: erro quadrático médio da probabilidade (0 = perfeito). Ganho (BSS) > 0 indica que as probabilidades "
