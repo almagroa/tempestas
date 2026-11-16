@@ -421,7 +421,7 @@ def point_chart(res, out_path) -> Path:
         mk, c = NETWORK_STYLE.get(net, ("v", "#999999"))
         n = res.stations[res.stations.rede == net]["codigo"].nunique()
         a1.scatter(x + 0.22 + 0.1 * k, summ[net], marker=mk, s=28, color=c, edgecolors="#ffffff", linewidths=0.4,
-                   zorder=5, label=f"{net} (média de {n} estação{'ões' if n > 1 else ''} a até {res.radius_km:g} km)")
+                   zorder=5, label=f"{net} (média de {n} {'estações' if n > 1 else 'estação'} a até {res.radius_km:g} km)")
     a1.set_ylabel("Chuva diária (mm)", fontsize=8, color=MUTED)
     a1.set_title(f"{res.name}: chuva diária prevista (modelos × antecedência de 1 a 5 dias) e observada",
                  loc="left", fontsize=10, color=INK)
@@ -440,8 +440,12 @@ def point_chart(res, out_path) -> Path:
     for net in nd.columns:
         mk, c = NETWORK_STYLE.get(net, ("v", "#999999"))
         s = summ[net]
-        a2.plot(x, s.fillna(0).cumsum(), color=c, lw=1.6, marker=mk, ms=3, markevery=max(1, len(x) // 10),
-                label=net + (" (dias sem dado contam 0)" if s.isna().any() else ""))
+        first = s.first_valid_index()
+        c_s = s.fillna(0).cumsum().where(s.index >= first) if first is not None else s
+        late = first is not None and first != s.index[0]
+        a2.plot(x, c_s, color=c, lw=1.6, marker=mk, ms=3, markevery=max(1, len(x) // 10),
+                label=net + (f" (a partir de {pd.Timestamp(first):%d/%m})" if late else "")
+                + (" (falhas contam 0)" if s.loc[first:].isna().any() else ""))
     a2.set_ylabel("Acumulado (mm)", fontsize=8, color=MUTED)
     a2.set_title(f"Acumulado desde {res.start:%d/%m} ({full.shape[1]} previsões com 80% ou mais dos dias; "
                  "dias sem rodada usam a mediana do dia)",

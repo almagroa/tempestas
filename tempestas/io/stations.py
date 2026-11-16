@@ -44,6 +44,28 @@ _READERS = {"INMET": _inmet_year, "Cemaden": _csv_year("CEMADEN", "CEMADEN"), "A
 NETWORKS = list(_READERS)
 
 
+def flag_dead_gauges(tot: pd.DataFrame, radius_km: float = 25.0, frac: float = 0.2, min_neighbors: int = 3,
+                     min_neighbor_mm: float = 20.0) -> pd.Series:
+    """Pluviômetro "morto": total do período abaixo de ``frac`` da mediana das vizinhas (mesma rede ou não)
+    num raio de ``radius_km``, com pelo menos ``min_neighbors`` vizinhas e mediana ≥ ``min_neighbor_mm``."""
+    import numpy as np
+
+    lat = tot["lat"].astype(float).to_numpy()
+    lon = tot["lon"].astype(float).to_numpy()
+    v = tot["obs_mm"].astype(float).to_numpy()
+    dy = (lat[:, None] - lat[None, :]) * 111.2
+    dx = (lon[:, None] - lon[None, :]) * 111.2 * np.cos(np.radians(lat[:, None]))
+    near = (np.hypot(dx, dy) <= radius_km) & ~np.eye(len(v), dtype=bool)
+    dead = np.zeros(len(v), dtype=bool)
+    for i in range(len(v)):
+        nb = v[near[i]]
+        nb = nb[np.isfinite(nb)]
+        if len(nb) >= min_neighbors:
+            med = np.median(nb)
+            dead[i] = med >= min_neighbor_mm and v[i] < frac * med
+    return pd.Series(dead, index=tot.index)
+
+
 def period_totals(cfg: Config, network: str, start: date, end: date, max_missing_days: int = 0) -> pd.DataFrame:
     """Total de chuva por estação de uma rede no período (dia UTC). Redes não são fundidas.
 
@@ -66,6 +88,11 @@ def period_totals(cfg: Config, network: str, start: date, end: date, max_missing
     if tot.empty:
         raise ValueError(f"nenhuma estação {network} com dados completos em {start}–{end}")
     tot.insert(0, "rede", network)
+    dead = flag_dead_gauges(tot)
+    if dead.any():
+        log.info("%s: %d pluviômetro(s) descartado(s) (total < 20%% das vizinhas): %s", network, int(dead.sum()),
+                 ", ".join(tot.loc[dead, "estacao"].astype(str)))
+        tot = tot[~dead]
     return tot
 
 

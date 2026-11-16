@@ -12,7 +12,7 @@ from tempestas.config import Config
 from tempestas.download.inmet import daily_precip
 from tempestas.io.observed import OBSERVED_READERS
 from tempestas.io.standardize import regrid, target_grid
-from tempestas.io.stations import _READERS
+from tempestas.io.stations import _READERS, flag_dead_gauges
 from tempestas.verify.probabilistic import daily_ensemble
 
 log = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ def point_analysis(
             skipped[prod] = str(exc)
     satellite = pd.DataFrame(sat)
 
-    frames = []
+    frames, metas = [], []
     for network, reader in _READERS.items():
         try:
             hourly = pd.concat([reader(cfg, y) for y in range(start.year, end.year + 1)], ignore_index=True)
@@ -109,10 +109,23 @@ def point_analysis(
         d = daily_precip(near.drop(columns="dist_km"), day_start_hour_utc=0)
         d = d[(d["dia"] >= pd.Timestamp(start)) & (d["dia"] <= pd.Timestamp(end))].dropna(subset=["precip_mm"])
         dist = near.groupby("codigo")["dist_km"].first()
+        metas.append(near.groupby("codigo")[["lat", "lon"]].first().reset_index().assign(rede=network))
         d["dist_km"] = d["codigo"].map(dist)
         d["dia"] = d["dia"].dt.date
         d.insert(0, "rede", network)
         frames.append(d[["dia", "rede", "codigo", "estacao", "dist_km", "precip_mm"]])
+    if frames:
+        # pluviômetro "morto": total muito abaixo das vizinhas (todas as redes), no período em comum
+        allst = pd.concat(frames, ignore_index=True)
+        meta = pd.concat(metas, ignore_index=True)
+        tot = allst.groupby(["rede", "codigo"])["precip_mm"].agg(obs_mm="mean").reset_index()
+        tot = tot.merge(meta, on=["rede", "codigo"], how="left")
+        dead = flag_dead_gauges(tot, radius_km=radius_km * 2, min_neighbor_mm=0.5)
+        if dead.any():
+            bad = set(zip(tot.loc[dead, "rede"], tot.loc[dead, "codigo"]))
+            names = sorted(tot.loc[dead, "codigo"].astype(str))
+            skipped["pluviômetros descartados"] = f"{len(bad)} com chuva muito abaixo das vizinhas: " + ", ".join(names)
+            frames = [f[~f.apply(lambda r: (r["rede"], r["codigo"]) in bad, axis=1)] for f in frames]
     stations = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
         columns=["dia", "rede", "codigo", "estacao", "dist_km", "precip_mm"])
     return PointResult(name, lat, lon, radius_km, start, end, members, satellite, stations, skipped)

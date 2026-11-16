@@ -241,3 +241,13 @@ def test_point_summary_positions():
     s = r.summary()
     assert s["pos_IMERG"].tolist() == ["acima", "P10–P90"]
     assert s["pos_INMET"].tolist() == ["P10–P90", "acima"]
+
+
+def test_flag_dead_gauges():
+    import pandas as pd
+
+    from tempestas.io.stations import flag_dead_gauges
+
+    tot = pd.DataFrame({"lat": [-30.0, -30.02, -30.04, -30.01, -29.0], "lon": [-51.2, -51.21, -51.19, -51.22, -53.0],
+                        "obs_mm": [100.0, 95.0, 110.0, 0.0, 0.0]})
+    assert flag_dead_gauges(tot).tolist() == [False, False, False, True, False]  # isolada não é julgada
