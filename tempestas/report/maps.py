@@ -412,7 +412,7 @@ def point_chart(res, out_path) -> Path:
     fig, (a1, a2) = plt.subplots(2, 1, figsize=(11, 7.6), height_ratios=[1.25, 1], sharex=True)
     a1.vlines(x, summ["min"], summ["max"], color="#cbb8ee", alpha=0.55, lw=7, label="leque das previsões (mín–máx)", zorder=1)
     a1.vlines(x, summ["p10"], summ["p90"], color="#7b5cc4", alpha=0.55, lw=7, label="faixa provável (P10–P90)", zorder=2)
-    a1.scatter(x, summ["mediana"], marker="_", s=90, color="#ffffff", linewidths=2, zorder=3, label="mediana")
+    a1.scatter(x, summ["mediana"], marker="_", s=90, color="#3d2a7a", linewidths=1.6, zorder=3, label="mediana")
     for col in res.satellite.columns:
         a1.scatter(x, summ[col], marker="D", s=30, color="#e07a00", edgecolors=INK, linewidths=0.4,
                    zorder=5, label=f"{col} (satélite, célula de 0,1°)")
@@ -434,7 +434,7 @@ def point_chart(res, out_path) -> Path:
     a2.fill_between(x, cum.min(axis=1), cum.max(axis=1), color="#cbb8ee", alpha=0.55, label="leque das previsões (mín–máx)")
     a2.fill_between(x, cum.quantile(0.1, axis=1), cum.quantile(0.9, axis=1), color="#7b5cc4", alpha=0.45,
                     label="faixa provável (P10–P90)")
-    a2.plot(x, cum.median(axis=1), color="#ffffff", lw=1.5, label="mediana")
+    a2.plot(x, cum.median(axis=1), color="#3d2a7a", lw=1.3, ls="--", label="mediana")
     for col in res.satellite.columns:
         a2.plot(x, summ[col].fillna(0).cumsum(), color="#e07a00", lw=2, label=col)
     for net in nd.columns:
