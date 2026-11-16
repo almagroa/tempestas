@@ -180,6 +180,9 @@ def event_summary(ens: xr.DataArray, obs: xr.DataArray, mask: xr.DataArray, thre
     pv = pct.where(mask).values
     pv = pv[np.isfinite(pv)]
     out["area_p10_p90"] = float(((pv >= 0.1) & (pv <= 0.9)).mean()) if len(pv) else np.nan
+    hv = pct.where(mask & (obs >= 50)).values
+    hv = hv[np.isfinite(hv)]
+    out["forte_p10_p90"] = float(((hv >= 0.1) & (hv <= 0.9)).mean()) if len(hv) else np.nan
     out["limiares"] = []
     m = mask.values.astype(bool)
     for thr in thresholds:

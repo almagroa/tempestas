@@ -155,7 +155,7 @@ def _spread_table(doc, res, ref) -> None:
         per = f"{ev.start:%d/%m}" if ev.start == ev.end else f"{ev.start:%d/%m}–{ev.end:%d/%m}"
         rows.append([per, f"{sm['obs_media']:.0f}", f"{sm['minimo']:.0f}–{sm['maximo']:.0f}",
                      f"{sm['p10']:.0f}–{sm['p90']:.0f}", f"P{sm['pct_obs'] * 100:.0f}", _verdict(sm["obs_media"], sm),
-                     _pct(sm["area_posicao"]["dentro do leque"]), _pct(sm["area_p10_p90"])])
+                     _pct(sm["area_posicao"]["dentro do leque"]), _pct(sm["area_p10_p90"]), _pct(sm["forte_p10_p90"])])
     if not rows and res.prob is None:
         return
     doc.add_paragraph()
@@ -163,10 +163,11 @@ def _spread_table(doc, res, ref) -> None:
                       "antecedências de 1 a 5 dias)", style="Heading 3")
     if rows:
         _table(doc, ["Evento", "Observado", "Leque (mín–máx)", "Faixa provável (P10–P90)", "Percentil",
-                     "Dentro do leque?", "Área do RS no leque", "Área do RS em P10–P90"], rows,
-               widths=[1.5, 1.6, 1.9, 2.2, 1.5, 3.2, 1.8, 1.9])
+                     "Dentro do leque?", "Área do RS no leque", "Área do RS em P10–P90", "Área com ≥ 50 mm em P10–P90"], rows,
+               widths=[1.4, 1.5, 1.8, 2.0, 1.4, 2.9, 1.6, 1.7, 1.9])
         doc.add_paragraph("Leque = da menor à maior previsão. Faixa provável = do 10º ao 90º percentil das previsões; "
-                          "num leque bem calibrado, cerca de 80% da área cai nela.")
+                          "num leque bem calibrado, cerca de 80% da área cai nela. A última coluna considera só os pontos onde "
+                          "choveu 50 mm ou mais no evento (– = não houve).")
     if res.prob is not None:
         pos = res.prob["position"]
         cov = res.prob.get("cobertura_p10_p90", float("nan"))
