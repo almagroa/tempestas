@@ -130,6 +130,54 @@ def _monthly_probabilistic(doc, prob, daily_threshold, fig_dir) -> None:
     )
 
 
+def _verdict(o: float, sm: dict) -> str:
+    if o < sm["minimo"]:
+        return "Não – abaixo de todas"
+    if o > sm["maximo"]:
+        return "Não – acima de todas"
+    if o < sm["p10"]:
+        return "Sim, na ponta baixa (< P10)"
+    if o > sm["p90"]:
+        return "Sim, na ponta alta (> P90)"
+    return "Sim, na faixa provável"
+
+
+def _spread_table(doc, res, ref) -> None:
+    """Tabela-resumo: a chuva observada caiu dentro do leque das previsões?"""
+    rows = []
+    for k, ev in enumerate(res.event_results):
+        ens = res.event_ens[k] if k < len(res.event_ens) else None
+        if ens is None:
+            continue
+        sm = event_summary(ens, ev.observed[ref], ev.masks["RS"], [50, 100])
+        if "p10" not in sm:
+            continue
+        per = f"{ev.start:%d/%m}" if ev.start == ev.end else f"{ev.start:%d/%m}–{ev.end:%d/%m}"
+        rows.append([per, f"{sm['obs_media']:.0f}", f"{sm['minimo']:.0f}–{sm['maximo']:.0f}",
+                     f"{sm['p10']:.0f}–{sm['p90']:.0f}", f"P{sm['pct_obs'] * 100:.0f}", _verdict(sm["obs_media"], sm),
+                     _pct(sm["area_posicao"]["dentro do leque"]), _pct(sm["area_p10_p90"])])
+    if not rows and res.prob is None:
+        return
+    doc.add_paragraph()
+    doc.add_paragraph("Choveu dentro do leque das previsões? (chuva média no RS, mm; previsões = modelos × "
+                      "antecedências de 1 a 5 dias)", style="Heading 3")
+    if rows:
+        _table(doc, ["Evento", "Observado", "Leque (mín–máx)", "Faixa provável (P10–P90)", "Percentil",
+                     "Dentro do leque?", "Área do RS no leque", "Área do RS em P10–P90"], rows,
+               widths=[1.5, 1.6, 1.9, 2.2, 1.5, 3.2, 1.8, 1.9])
+        doc.add_paragraph("Leque = da menor à maior previsão. Faixa provável = do 10º ao 90º percentil das previsões; "
+                          "num leque bem calibrado, cerca de 80% da área cai nela.")
+    if res.prob is not None:
+        pos = res.prob["position"]
+        cov = res.prob.get("cobertura_p10_p90", float("nan"))
+        doc.add_paragraph(
+            f"No mês (todos os dias e pontos com chuva observada ou prevista): dentro do leque em "
+            f"{_pct(pos['dentro do leque'])} dos casos, acima de todas as previsões em "
+            f"{_pct(pos['acima de todas as previsões'])}, abaixo de todas em {_pct(pos['abaixo de todas as previsões'])}. "
+            f"Dentro da faixa provável P10–P90 em {_pct(cov)} (o esperado para um leque bem calibrado é 80%)."
+        )
+
+
 def build_monthly_report(
     res: MonthResult,
     out_path: str | Path,
@@ -179,6 +227,7 @@ def build_monthly_report(
                          f"{b.model} (CSI {_num(b.csi, 2)}).")
     for ln in lines:
         doc.add_paragraph(ln, style="List Bullet")
+    _spread_table(doc, res, ref)
 
     # 2. Dados e método
     _heading(doc, "2. Dados e método")

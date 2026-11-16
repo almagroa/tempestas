@@ -146,6 +146,9 @@ def monthly_probabilistic(
     c = cat.values[active]
     c = c[np.isfinite(c)]
     out["position"] = {POSITION_LABELS[k]: float((c == k).mean()) if len(c) else np.nan for k in (0, 1, 2)}
+    pa = pct.values[active]
+    pa = pa[np.isfinite(pa)]
+    out["cobertura_p10_p90"] = float(((pa >= 0.1) & (pa <= 0.9)).mean()) if len(pa) else np.nan
     # histograma de posição só com dias de chuva (obs ≥ 1 mm), para não encher a faixa de "zero" empatado
     wet = (obs >= 1).values[m]
     pv = pct.values[m][wet]
@@ -174,6 +177,9 @@ def event_summary(ens: xr.DataArray, obs: xr.DataArray, mask: xr.DataArray, thre
     c = cat.where(mask).values
     c = c[np.isfinite(c)]
     out["area_posicao"] = {POSITION_LABELS[k]: float((c == k).mean()) if len(c) else np.nan for k in (0, 1, 2)}
+    pv = pct.where(mask).values
+    pv = pv[np.isfinite(pv)]
+    out["area_p10_p90"] = float(((pv >= 0.1) & (pv <= 0.9)).mean()) if len(pv) else np.nan
     out["limiares"] = []
     m = mask.values.astype(bool)
     for thr in thresholds:
