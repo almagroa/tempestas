@@ -67,3 +67,10 @@ verification:
   thresholds_mm: [10, 25, 50, 100]   # aplicados ao acumulado do período analisado
   lead_days: [1, 2, 3, 5, 7, 10, 15]
   monthly_max_missing_days: 3     # relatório mensal: estação entra como "parcial" com até 3 dias faltando (sem preencher)
+
+# Municípios de exemplo no relatório mensal (leque das previsões × satélite e estações)
+report_points:
+  - nome: Porto Alegre
+    lat: -30.03
+    lon: -51.21
+    raio_km: 15

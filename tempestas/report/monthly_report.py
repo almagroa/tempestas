@@ -179,6 +179,49 @@ def _spread_table(doc, res, ref) -> None:
         )
 
 
+def _point_section(doc, pt, ref, fig_dir) -> None:
+    from tempestas.report.maps import point_chart
+
+    doc.add_paragraph(f"Exemplo local: {pt.name}", style="Heading 2")
+    nets = pt.stations.groupby("rede")["codigo"].nunique() if not pt.stations.empty else pd.Series(dtype=int)
+    st_txt = ", ".join(f"{n} do {k}" if k == "INMET" else f"{n} da {k}" if k == "ANA" else f"{n} do {k}"
+                       for k, n in nets.items())
+    doc.add_paragraph(
+        f"Chuva diária no ponto ({pt.lat:.2f}°, {pt.lon:.2f}°)".replace(".", ",") + f": o leque das previsões (modelos × antecedências de "
+        f"1 a 5 dias) na célula de 0,1° do ponto, comparado com o satélite na mesma célula e com a média das "
+        f"estações a até {pt.radius_km:g} km" + (f" ({st_txt})" if st_txt else "") + ". Pluviômetros com chuva "
+        "muito abaixo das vizinhas foram descartados."
+    )
+    slug = pt.name.lower().replace(" ", "_")
+    doc.add_picture(str(point_chart(pt, fig_dir / f"{slug}_leque.png")), width=Cm(16.5))
+    summ = pt.summary()
+    rows = []
+    obs_cols = [c[4:] for c in summ.columns if c.startswith("pos_")]
+    m = pt.members
+    full = m.loc[:, m.notna().mean() >= 0.8]
+    cum = full.apply(lambda c: c.fillna(m.median(axis=1))).fillna(0).sum()
+    for col in obs_cols:
+        pos = summ[f"pos_{col}"]
+        pos = pos[pos != ""]
+        s = summ[col]
+        first = s.first_valid_index()
+        n_days = int(s.notna().sum())
+        tot = float(s.sum())
+        if first is not None and first != summ.index[0]:
+            per_cum = full.loc[first:].apply(lambda c: c.fillna(m.median(axis=1).loc[first:])).fillna(0).sum()
+        else:
+            per_cum = cum
+        p10, p50, p90 = (float(per_cum.quantile(q)) for q in (0.1, 0.5, 0.9)) if len(per_cum) else (float("nan"),) * 3
+        rows.append([col, n_days, int((pos == "P10–P90").sum()), int((pos == "leque").sum()),
+                     int((pos == "acima").sum()), int((pos == "abaixo").sum()), _num(tot, 0),
+                     f"{_num(p10, 0)} / {_num(p50, 0)} / {_num(p90, 0)}"])
+    _table(doc, ["Observado", "Dias", "Em P10–P90", "No leque, fora de P10–P90", "Acima de todas", "Abaixo de todas",
+                 "Total obs. (mm)", "Previsto P10 / mediana / P90 (mm)"], rows,
+           widths=[2.0, 1.1, 1.6, 2.4, 1.6, 1.6, 1.8, 3.4])
+    doc.add_paragraph("Contagem de dias pela posição do observado entre as previsões. O total previsto é o acumulado "
+                      "de cada previsão no mesmo período em que o observado tem dados.")
+
+
 def build_monthly_report(
     res: MonthResult,
     out_path: str | Path,
@@ -317,6 +360,9 @@ def build_monthly_report(
 
     if res.prob is not None:
         _monthly_probabilistic(doc, res.prob, daily_threshold, fig_dir)
+
+    for pt in res.points:
+        _point_section(doc, pt, ref, fig_dir)
 
     # 6. Vento
     w = res.wind

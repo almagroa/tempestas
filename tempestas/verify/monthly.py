@@ -41,6 +41,7 @@ class MonthResult:
     skipped: dict[str, str] = field(default_factory=dict)
     prob: dict | None = None                     # métricas probabilísticas do mês (ensemble multimodelo defasado)
     event_ens: list = field(default_factory=list)  # ensemble do total de cada evento (member, lat, lon)
+    points: list = field(default_factory=list)     # PointResult dos municípios de exemplo
 
 
 def detect_events(
@@ -146,13 +147,23 @@ def verify_month(cfg: Config, year: int, month: int, models: list[str] | None = 
 
     from tempestas.verify.probabilistic import daily_ensemble, event_ensemble, monthly_probabilistic
 
-    prob, event_ens = None, []
+    prob, event_ens, points = None, [], []
+    ens = None
     try:
         ens = daily_ensemble(cfg, start, end, lats, lons, models=models)
         prob = monthly_probabilistic(ens, obs_daily[ref], masks["RS"])
     except Exception as exc:
         skipped["probabilístico"] = str(exc)
         log.warning("probabilístico: %s", exc)
+    from tempestas.verify.point import point_analysis
+
+    for pt in cfg.raw.get("report_points") or [{"nome": "Porto Alegre"}]:
+        try:
+            points.append(point_analysis(cfg, pt["nome"], start, end, lat=pt.get("lat"), lon=pt.get("lon"),
+                                         radius_km=pt.get("raio_km", 15.0), models=models, ens=ens))
+        except Exception as exc:
+            skipped[f"município {pt['nome']}"] = str(exc)
+            log.warning("município %s: %s", pt["nome"], exc)
     for ev in event_results:
         try:
             event_ens.append(event_ensemble(ev.forecasts))
@@ -182,5 +193,5 @@ def verify_month(cfg: Config, year: int, month: int, models: list[str] | None = 
 
     return MonthResult(
         year, month, start, end, obs_daily, obs_total, masks, pd.DataFrame(reg_rows), events, event_results,
-        daily, wind, stations, inventory, run_availability(cfg, start, end), skipped, prob, event_ens,
+        daily, wind, stations, inventory, run_availability(cfg, start, end), skipped, prob, event_ens, points,
     )

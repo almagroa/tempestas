@@ -66,14 +66,15 @@ class PointResult:
 
 def point_analysis(
     cfg: Config, name: str, start: date, end: date, lat: float | None = None, lon: float | None = None,
-    radius_km: float = 15.0, models: list[str] | None = None,
+    radius_km: float = 15.0, models: list[str] | None = None, ens=None,
 ) -> PointResult:
     if lat is None or lon is None:
         lat, lon = PLACES[name]
     lats, lons = target_grid(cfg.domain, cfg.verification["grid"])
     skipped = {}
 
-    ens = daily_ensemble(cfg, start, end, lats, lons, models=models)
+    if ens is None:
+        ens = daily_ensemble(cfg, start, end, lats, lons, models=models)
     cell = ens.sel(lat=lat, lon=lon, method="nearest")
     members = cell.to_pandas().T  # time × member
     members.index = pd.DatetimeIndex(members.index).date
