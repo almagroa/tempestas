@@ -410,8 +410,8 @@ def point_chart(res, out_path) -> Path:
     days = pd.to_datetime(summ.index)
     x = np.arange(len(days))
     fig, (a1, a2) = plt.subplots(2, 1, figsize=(11, 7.6), height_ratios=[1.25, 1], sharex=True)
-    a1.vlines(x, summ["min"], summ["max"], color="#cbb8ee", lw=7, label="leque das previsões (mín–máx)", zorder=1)
-    a1.vlines(x, summ["p10"], summ["p90"], color="#7b5cc4", lw=7, label="faixa provável (P10–P90)", zorder=2)
+    a1.vlines(x, summ["min"], summ["max"], color="#cbb8ee", alpha=0.55, lw=7, label="leque das previsões (mín–máx)", zorder=1)
+    a1.vlines(x, summ["p10"], summ["p90"], color="#7b5cc4", alpha=0.55, lw=7, label="faixa provável (P10–P90)", zorder=2)
     a1.scatter(x, summ["mediana"], marker="_", s=90, color="#ffffff", linewidths=2, zorder=3, label="mediana")
     for col in res.satellite.columns:
         a1.scatter(x, summ[col], marker="D", s=30, color="#e07a00", edgecolors=INK, linewidths=0.4,
@@ -431,8 +431,8 @@ def point_chart(res, out_path) -> Path:
     full = m.loc[:, m.notna().mean() >= 0.8]
     # dias sem a rodada daquele membro: usa a mediana das demais previsões do dia
     cum = full.apply(lambda c: c.fillna(m.median(axis=1))).fillna(0).cumsum()
-    a2.fill_between(x, cum.min(axis=1), cum.max(axis=1), color="#cbb8ee", label="leque das previsões (mín–máx)")
-    a2.fill_between(x, cum.quantile(0.1, axis=1), cum.quantile(0.9, axis=1), color="#7b5cc4", alpha=0.8,
+    a2.fill_between(x, cum.min(axis=1), cum.max(axis=1), color="#cbb8ee", alpha=0.55, label="leque das previsões (mín–máx)")
+    a2.fill_between(x, cum.quantile(0.1, axis=1), cum.quantile(0.9, axis=1), color="#7b5cc4", alpha=0.45,
                     label="faixa provável (P10–P90)")
     a2.plot(x, cum.median(axis=1), color="#ffffff", lw=1.5, label="mediana")
     for col in res.satellite.columns:
