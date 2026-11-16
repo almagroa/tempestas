@@ -399,3 +399,65 @@ def reliability_rank(reliab: dict, rank_hist, out_path) -> Path:
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
     return out_path
+
+
+NETWORK_STYLE = {"INMET": ("s", "#1f2328"), "Cemaden": ("o", "#1f6fb2"), "ANA": ("^", "#2a9d8f")}
+
+
+def point_chart(res, out_path) -> Path:
+    """Leque diário das previsões num ponto, com satélite e estações; abaixo, o acumulado do período."""
+    summ = res.summary()
+    days = pd.to_datetime(summ.index)
+    x = np.arange(len(days))
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(11, 7.6), height_ratios=[1.25, 1], sharex=True)
+    a1.vlines(x, summ["min"], summ["max"], color="#cbb8ee", lw=7, label="leque das previsões (mín–máx)", zorder=1)
+    a1.vlines(x, summ["p10"], summ["p90"], color="#7b5cc4", lw=7, label="faixa provável (P10–P90)", zorder=2)
+    a1.scatter(x, summ["mediana"], marker="_", s=90, color="#ffffff", linewidths=2, zorder=3, label="mediana")
+    for col in res.satellite.columns:
+        a1.scatter(x, summ[col], marker="D", s=30, color="#e07a00", edgecolors=INK, linewidths=0.4,
+                   zorder=5, label=f"{col} (satélite, célula de 0,1°)")
+    nd = res.network_daily()
+    for k, net in enumerate(nd.columns):
+        mk, c = NETWORK_STYLE.get(net, ("v", "#999999"))
+        n = res.stations[res.stations.rede == net]["codigo"].nunique()
+        a1.scatter(x + 0.22 + 0.1 * k, summ[net], marker=mk, s=28, color=c, edgecolors="#ffffff", linewidths=0.4,
+                   zorder=5, label=f"{net} (média de {n} estação{'ões' if n > 1 else ''} a até {res.radius_km:g} km)")
+    a1.set_ylabel("Chuva diária (mm)", fontsize=8, color=MUTED)
+    a1.set_title(f"{res.name}: chuva diária prevista (modelos × antecedência de 1 a 5 dias) e observada",
+                 loc="left", fontsize=10, color=INK)
+    a1.legend(fontsize=7, frameon=False, ncol=2, loc="upper left")
+
+    m = res.members
+    full = m.loc[:, m.notna().mean() >= 0.8]
+    # dias sem a rodada daquele membro: usa a mediana das demais previsões do dia
+    cum = full.apply(lambda c: c.fillna(m.median(axis=1))).fillna(0).cumsum()
+    a2.fill_between(x, cum.min(axis=1), cum.max(axis=1), color="#cbb8ee", label="leque das previsões (mín–máx)")
+    a2.fill_between(x, cum.quantile(0.1, axis=1), cum.quantile(0.9, axis=1), color="#7b5cc4", alpha=0.8,
+                    label="faixa provável (P10–P90)")
+    a2.plot(x, cum.median(axis=1), color="#ffffff", lw=1.5, label="mediana")
+    for col in res.satellite.columns:
+        a2.plot(x, summ[col].fillna(0).cumsum(), color="#e07a00", lw=2, label=col)
+    for net in nd.columns:
+        mk, c = NETWORK_STYLE.get(net, ("v", "#999999"))
+        s = summ[net]
+        a2.plot(x, s.fillna(0).cumsum(), color=c, lw=1.6, marker=mk, ms=3, markevery=max(1, len(x) // 10),
+                label=net + (" (dias sem dado contam 0)" if s.isna().any() else ""))
+    a2.set_ylabel("Acumulado (mm)", fontsize=8, color=MUTED)
+    a2.set_title(f"Acumulado desde {res.start:%d/%m} ({full.shape[1]} previsões com 80% ou mais dos dias; "
+                 "dias sem rodada usam a mediana do dia)",
+                 loc="left", fontsize=10, color=INK)
+    a2.legend(fontsize=7, frameon=False, loc="upper left")
+    a2.set_xticks(x[::2])
+    a2.set_xticklabels([d.strftime("%d/%m") for d in days[::2]], fontsize=7)
+    for ax in (a1, a2):
+        ax.tick_params(labelsize=7, colors=MUTED)
+        ax.grid(axis="y", color="#eaeef2", lw=0.6)
+        ax.set_axisbelow(True)
+        for s in ax.spines.values():
+            s.set_color("#d0d7de")
+    fig.tight_layout()
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    return out_path

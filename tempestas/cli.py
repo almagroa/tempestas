@@ -62,6 +62,40 @@ def _cmd_mensal(args) -> None:
             print(f"  {k}: {v}")
 
 
+def _cmd_ponto(args) -> None:
+    cfg = load_config(args.config)
+    if args.mes:
+        y, m = (int(v) for v in args.mes.split("-"))
+        start = date(y, m, 1)
+        end = (pd.Timestamp(start) + pd.offsets.MonthEnd(0)).date()
+    else:
+        start, end = date.fromisoformat(args.inicio), date.fromisoformat(args.fim)
+    from tempestas.report.maps import point_chart
+    from tempestas.verify.point import point_analysis
+
+    res = point_analysis(cfg, args.nome, start, end, lat=args.lat, lon=args.lon, radius_km=args.raio, models=args.modelos)
+    slug = args.nome.lower().replace(" ", "_")
+    out_dir = Path(args.saida or cfg.paths["work_dir"] / "pontos" / f"{slug}_{start:%Y%m%d}_{end:%Y%m%d}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    png = point_chart(res, out_dir / f"{slug}_leque.png")
+    summ = res.summary()
+    summ.round(1).to_csv(out_dir / f"{slug}_diario.csv", index_label="dia")
+    res.members.round(1).to_csv(out_dir / f"{slug}_previsoes.csv", index_label="dia")
+    if not res.stations.empty:
+        res.stations.to_csv(out_dir / f"{slug}_estacoes.csv", index=False)
+        st = res.stations.groupby(["rede", "codigo", "estacao"]).agg(dist_km=("dist_km", "first"), dias=("dia", "nunique"),
+                                                                    total_mm=("precip_mm", "sum"))
+        print("Estações usadas:\n" + st.round(1).to_string())
+    print(f"Gráfico: {png}\nTabela diária: {out_dir / (slug + '_diario.csv')}")
+    for col in [c for c in summ.columns if c.startswith("pos_")]:
+        counts = summ[col][summ[col] != ""].value_counts()
+        print(f"{col[4:]}: " + ", ".join(f"{k} {v} dias" for k, v in counts.items()))
+    if res.skipped:
+        print("Fontes ignoradas:")
+        for k, v in res.skipped.items():
+            print(f"  {k}: {v}")
+
+
 def _cmd_baixar(args) -> None:
     cfg = load_config(args.config)
     root = Path(args.saida or cfg.paths["work_dir"] / "dados")
@@ -128,6 +162,18 @@ def main(argv: list[str] | None = None) -> None:
     me.add_argument("--limiar-diario", type=float, default=25.0, help="limiar diário (mm) das métricas categóricas")
     me.add_argument("--limiar-evento", type=float, default=50.0, help="limiar (mm no evento) das métricas categóricas")
     me.set_defaults(func=_cmd_mensal)
+
+    po = sub.add_parser("ponto", help="leque das previsões × chuva observada num município/ponto")
+    po.add_argument("--nome", default="Porto Alegre")
+    po.add_argument("--mes", help="mês (AAAA-MM); ou use --inicio/--fim")
+    po.add_argument("--inicio")
+    po.add_argument("--fim")
+    po.add_argument("--lat", type=float)
+    po.add_argument("--lon", type=float)
+    po.add_argument("--raio", type=float, default=15.0, help="raio (km) para as estações")
+    po.add_argument("--modelos", nargs="*")
+    po.add_argument("--saida")
+    po.set_defaults(func=_cmd_ponto)
 
     bx = sub.add_parser("baixar", help="atualiza ERA5/ERA5-Land, METAR e INMET")
     bx.add_argument("--fontes", nargs="*", default=["era5", "metar", "inmet", "ana", "cemaden"], choices=["era5", "metar", "inmet", "ana", "cemaden"])

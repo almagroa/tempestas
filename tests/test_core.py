@@ -223,3 +223,21 @@ def test_probabilistic_basics():
     assert pct.values.tolist() == [[0.0, 0.5], [0.75, 1.0]]
     b = brier(np.array([1.0, 0.0, 0.5]), np.array([1.0, 0.0, 1.0]))
     assert abs(b["brier"] - 0.25 / 3) < 1e-9 and b["bss"] > 0
+
+
+def test_point_summary_positions():
+    from datetime import date
+
+    import pandas as pd
+
+    from tempestas.verify.point import PointResult
+
+    days = [date(2026, 10, 1), date(2026, 10, 2)]
+    members = pd.DataFrame({"A d1": [0.0, 10.0], "B d1": [5.0, 20.0], "C d1": [10.0, 30.0]}, index=days)
+    sat = pd.DataFrame({"IMERG": [12.0, 20.0]}, index=days)
+    st = pd.DataFrame({"dia": days, "rede": "INMET", "codigo": "A801", "estacao": "PORTO ALEGRE", "dist_km": 3.0,
+                       "precip_mm": [5.0, 40.0]})
+    r = PointResult("Teste", -30, -51, 15, days[0], days[1], members, sat, st)
+    s = r.summary()
+    assert s["pos_IMERG"].tolist() == ["acima", "P10–P90"]
+    assert s["pos_INMET"].tolist() == ["P10–P90", "acima"]
