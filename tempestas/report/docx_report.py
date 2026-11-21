@@ -122,6 +122,8 @@ def build_event_report(
     daily: pd.DataFrame | None = None,
     daily_threshold: float = 25.0,
     responsible: str = "André Almagro – Eng. Ambiental, Dr. em Hidrologia – CREA 20072-MS",
+    ensemble=None,
+    points: list | None = None,
 ) -> Path:
     out_path = Path(out_path)
     fig_dir = out_path.parent / "figuras"
@@ -203,6 +205,26 @@ def build_event_report(
         doc.add_paragraph()
 
     sec = 6
+    if ensemble is not None or points:
+        from tempestas.report.monthly_report import PROB_METHOD, _event_probabilistic, _pct, _point_section, _verdict
+        from tempestas.verify.probabilistic import event_summary
+
+        _heading(doc, f"{sec}. Previsão probabilística: a chuva caiu dentro do leque das previsões?")
+        sec += 1
+        doc.add_paragraph(PROB_METHOD)
+        if ensemble is not None:
+            sm = event_summary(ensemble, result.observed[obs_ref], result.masks["RS"], [50, 100])
+            if "p10" in sm:
+                _table(doc, ["Observado (média RS)", "Leque (mín–máx)", "Faixa provável (P10–P90)", "Percentil",
+                             "Dentro do leque?", "Área do RS em P10–P90", "Área com ≥ 50 mm em P10–P90"],
+                       [[f"{sm['obs_media']:.0f} mm", f"{sm['minimo']:.0f}–{sm['maximo']:.0f}",
+                         f"{sm['p10']:.0f}–{sm['p90']:.0f}", f"P{sm['pct_obs'] * 100:.0f}",
+                         _verdict(sm["obs_media"], sm), _pct(sm["area_p10_p90"]), _pct(sm["forte_p10_p90"])]],
+                       widths=[2.4, 2.2, 2.6, 1.6, 3.2, 2.2, 2.4])
+            _event_probabilistic(doc, ensemble, result, obs_ref, 1, period, fig_dir)
+        for pt in points or []:
+            _point_section(doc, pt, obs_ref, fig_dir)
+
     if result.inventory is not None and len(result.inventory):
         _heading(doc, f"{sec}. Rede de estações")
         sec += 1
@@ -266,6 +288,7 @@ def build_event_report(
     multi = result.scores.groupby("model")["init"].nunique().max() > 1
     if multi:
         _heading(doc, f"{sec}. Desempenho por antecedência")
+        sec += 1
         png = skill_by_lead(result.scores[result.scores.region == "RS"], threshold, obs_ref, "csi", fig_dir / "csi_antecedencia.png")
         doc.add_picture(str(png), width=Cm(15))
 

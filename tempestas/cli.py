@@ -27,12 +27,26 @@ def _cmd_evento(args) -> None:
 
     from tempestas.verify.daily import daily_verification
 
+    from tempestas.verify.probabilistic import event_ensemble
+
     wind = characterize_wind(cfg, start, end)
     daily = daily_verification(cfg, start, end)
+    try:
+        ens = event_ensemble(result.forecasts)
+    except ValueError as exc:
+        print(f"Ensemble do evento: {exc}")
+        ens = None
+    points = []
+    if args.ponto_nome:
+        from tempestas.verify.point import point_analysis
+
+        p0 = start - timedelta(days=args.ponto_dias_antes)
+        points.append(point_analysis(cfg, args.ponto_nome, p0, end, lat=args.ponto_lat, lon=args.ponto_lon,
+                                     radius_km=args.ponto_raio, models=args.modelos))
 
     report = build_event_report(
         result, out_dir / f"Tempestas_evento_{start:%Y%m%d}_{end:%Y%m%d}.docx",
-        lead=args.antecedencia, threshold=args.limiar, wind=wind, daily=daily,
+        lead=args.antecedencia, threshold=args.limiar, wind=wind, daily=daily, ensemble=ens, points=points,
     )
     print(f"Relatório: {report}\nMétricas: {report.with_suffix('.csv')}")
     if result.skipped:
@@ -153,6 +167,11 @@ def main(argv: list[str] | None = None) -> None:
     ev.add_argument("--saida", help="pasta de saída")
     ev.add_argument("--antecedencia", type=int, default=1, help="antecedência (dias) usada nos mapas e tabelas")
     ev.add_argument("--limiar", type=float, default=50.0, help="limiar (mm no período) das métricas categóricas")
+    ev.add_argument("--ponto-nome", help="município para o exemplo local (ex.: Tupanciretã)")
+    ev.add_argument("--ponto-lat", type=float)
+    ev.add_argument("--ponto-lon", type=float)
+    ev.add_argument("--ponto-raio", type=float, default=15.0, help="raio (km) das estações no ponto")
+    ev.add_argument("--ponto-dias-antes", type=int, default=7, help="dias antes do evento no gráfico do ponto")
     ev.set_defaults(func=_cmd_evento)
 
     me = sub.add_parser("mensal", help="relatório mensal: chuva observada, eventos, desempenho diário e vento")
