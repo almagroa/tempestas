@@ -44,14 +44,20 @@ def get_token(timeout: int = 60) -> str:
     if cred_file.exists():
         import requests
 
-        cred = json.loads(cred_file.read_text(encoding="utf-8-sig"))
-        r = requests.post(SGAA_TOKEN, json={"email": cred["email"], "password": cred["password"]}, timeout=timeout)
-        r.raise_for_status()
-        body = r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text
-        token = body.get("token") if isinstance(body, dict) else str(body).strip().strip('"')
-        if not token:
-            raise RuntimeError("SGAA não devolveu token")
-        return token
+        try:
+            cred = json.loads(cred_file.read_text(encoding="utf-8-sig"))
+            r = requests.post(SGAA_TOKEN, json={"email": cred["email"], "password": cred["password"]}, timeout=timeout)
+            r.raise_for_status()
+            body = r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text
+            token = body.get("token") if isinstance(body, dict) else str(body).strip().strip('"')
+            if not token:
+                raise RuntimeError("SGAA não devolveu token")
+            return token
+        except Exception as exc:
+            if not tok_file.exists():
+                raise RuntimeError(f"login no SGAA com {cred_file} falhou ({exc}); confira a senha ou crie "
+                                   f"{tok_file} com um token gerado no SGAA") from exc
+            log.warning("login no SGAA falhou (%s); usando %s", exc, tok_file)
     if tok_file.exists():
         return tok_file.read_text(encoding="utf-8-sig").strip()
     raise FileNotFoundError(f"sem credenciais do Cemaden em {CRED_DIR} (cemaden_token.txt ou cemaden.json)")
