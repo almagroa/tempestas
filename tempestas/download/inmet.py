@@ -202,3 +202,41 @@ def update_recent(out_root, days: int = 35, uf: str = "RS", token: str | None = 
     new.to_csv(out, index=False)
     log.info("INMET API: %s atualizado até %s", out, new["time_utc"].max())
     return out
+
+
+def parse_tabela(path, meta: pd.DataFrame | None = None) -> pd.DataFrame:
+    """CSV baixado à mão em tempo.inmet.gov.br ("Tabela de dados das estações").
+
+    O código da estação vem do nome do arquivo (ex.: A886_*.csv ou generated_A886.csv) e lat/lon de ``meta``
+    (colunas codigo, estacao, lat, lon). Colunas usadas: Data, Hora (UTC), Chuva (mm), Vel. Vento, Raj. Vento.
+    """
+    import re
+    from pathlib import Path
+
+    path = Path(path)
+    raw = path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
+    head = next(i for i, ln in enumerate(raw) if "Data" in ln and ("Chuva" in ln or "Hora" in ln))
+    sep = ";" if raw[head].count(";") >= raw[head].count(",") else ","
+    from io import StringIO
+
+    df = pd.read_csv(StringIO("\n".join(raw[head:])), sep=sep, dtype=str)
+    cols = {c: c.lower() for c in df.columns}
+
+    def col(*keys):
+        return next((c for c, lc in cols.items() if all(k in lc for k in keys)), None)
+
+    c_d, c_h, c_p = col("data"), col("hora"), col("chuva")
+    c_w, c_g = col("vel", "vento"), col("raj", "vento")
+    hora = df[c_h].str.replace(r"\D", "", regex=True).str.zfill(4).str[:2]
+    t = pd.to_datetime(df[c_d].str.strip() + " " + hora, dayfirst=True, errors="coerce", format="mixed")
+    num = lambda c: pd.to_numeric(df[c].str.replace(",", "."), errors="coerce") if c else float("nan")
+    m = re.search(r"[A-Z]\d{3}", path.stem.upper())
+    code = m.group(0) if m else path.stem
+    out = pd.DataFrame({"time_utc": t.dt.tz_localize("UTC"), "precip_mm": num(c_p), "wind_ms": num(c_w),
+                        "gust_ms": num(c_g), "codigo": code})
+    if meta is not None and len(meta):
+        mm = meta.drop_duplicates("codigo").set_index("codigo")
+        if code in mm.index:
+            out["estacao"] = mm.loc[code, "estacao"]
+            out["lat"], out["lon"] = float(mm.loc[code, "lat"]), float(mm.loc[code, "lon"])
+    return out.dropna(subset=["time_utc"])

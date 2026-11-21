@@ -19,14 +19,25 @@ log = logging.getLogger(__name__)
 
 def _inmet_year(cfg: Config, year: int) -> pd.DataFrame:
     csv = cfg.paths["work_dir"] / "dados" / "INMET" / f"INMET_RS_{year}.csv"
+    df = pd.DataFrame()
     if csv.exists():
         df = pd.read_csv(csv, parse_dates=["time_utc"])
         df["time_utc"] = pd.to_datetime(df["time_utc"], utc=True)
-        return df
-    z = cfg.paths["inmet_root"] / f"{year}.zip"
-    if z.exists():
-        return read_zip(z, "RS")
-    return pd.DataFrame()
+    else:
+        z = cfg.paths["inmet_root"] / f"{year}.zip"
+        if z.exists():
+            df = read_zip(z, "RS")
+    # CSVs baixados à mão do portal tempo.inmet.gov.br (completam meses que o zip anual ainda não tem)
+    manual = sorted((cfg.paths["work_dir"] / "dados" / "INMET" / "manual").glob("*.csv"))
+    if manual:
+        from tempestas.download.inmet import parse_tabela
+
+        meta = df[["codigo", "estacao", "lat", "lon"]] if len(df) else None
+        extra = [parse_tabela(f, meta) for f in manual]
+        extra = [e[e["time_utc"].dt.year == year].dropna(subset=["lat", "lon"]) for e in extra if "lat" in e]
+        if extra:
+            df = pd.concat([df] + extra, ignore_index=True).drop_duplicates(["codigo", "time_utc"], keep="last")
+    return df
 
 
 def _csv_year(folder: str, prefix: str):
