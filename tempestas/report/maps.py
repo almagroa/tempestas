@@ -465,3 +465,43 @@ def point_chart(res, out_path) -> Path:
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
     return out_path
+
+
+def hyetograph(hourly: pd.DataFrame, start, end, out_path, title: str = "", max_stations: int = 3) -> Path | None:
+    """Chuva hora a hora das estações mais próximas com dado no período (barras) e acumulado (linha)."""
+    t0 = pd.Timestamp(start, tz="UTC")
+    t1 = pd.Timestamp(end, tz="UTC") + pd.Timedelta(days=1)
+    h = hourly[(hourly["time_utc"] > t0) & (hourly["time_utc"] <= t1)].dropna(subset=["precip_mm"])
+    if h.empty:
+        return None
+    tot = h.groupby(["rede", "codigo", "estacao", "dist_km"])["precip_mm"].agg(["sum", "count"]).reset_index()
+    tot = tot[tot["count"] >= 0.9 * 24 * ((t1 - t0).days)].sort_values("dist_km").head(max_stations)
+    if tot.empty:
+        return None
+    fig, axes = plt.subplots(len(tot), 1, figsize=(10, 2.3 * len(tot) + 0.4), sharex=True, squeeze=False)
+    hours = pd.date_range(t0 + pd.Timedelta(hours=1), t1, freq="h")
+    for ax, r in zip(axes[:, 0], tot.itertuples()):
+        s = h[(h.rede == r.rede) & (h.codigo == r.codigo)].set_index("time_utc")["precip_mm"].reindex(hours)
+        mk, c = NETWORK_STYLE.get(r.rede, ("o", "#1f6fb2"))
+        ax.bar(hours - pd.Timedelta(minutes=30), s.values, width=0.035, color=c)
+        ax2 = ax.twinx()
+        ax2.plot(hours, s.fillna(0).cumsum().values, color="#e07a00", lw=1.5)
+        ax2.set_ylabel("acumulado (mm)", fontsize=7, color="#e07a00")
+        ax2.tick_params(labelsize=7, colors="#e07a00")
+        ax.set_ylabel("mm/h", fontsize=7, color=MUTED)
+        mx = s.idxmax()
+        ax.set_title(f"{r.rede} {str(r.estacao).title()} ({r.codigo}, {r.dist_km:.0f} km): {r.sum:.1f} mm no período; "
+                     f"máximo {s.max():.1f} mm/h às {mx:%d/%m %Hh} UTC".replace(".", ","), loc="left", fontsize=9, color=INK)
+        ax.tick_params(labelsize=7, colors=MUTED)
+        for sp in list(ax.spines.values()) + list(ax2.spines.values()):
+            sp.set_color("#d0d7de")
+    import matplotlib.dates as mdates
+
+    axes[-1, 0].xaxis.set_major_formatter(mdates.DateFormatter("%d/%m %Hh"))
+    if title:
+        fig.suptitle(title, x=0.01, ha="left", fontsize=11, color=INK)
+    fig.tight_layout()
+    out_path = Path(out_path)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    return out_path

@@ -179,7 +179,7 @@ def _spread_table(doc, res, ref) -> None:
         )
 
 
-def _point_section(doc, pt, ref, fig_dir) -> None:
+def _point_section(doc, pt, ref, fig_dir, event: tuple | None = None) -> None:
     from tempestas.report.maps import point_chart
 
     doc.add_paragraph(f"Exemplo local: {pt.name}", style="Heading 2")
@@ -220,6 +220,15 @@ def _point_section(doc, pt, ref, fig_dir) -> None:
            widths=[2.0, 1.1, 1.6, 2.4, 1.6, 1.6, 1.8, 3.4])
     doc.add_paragraph("Contagem de dias pela posição do observado entre as previsões. O total previsto é o acumulado "
                       "de cada previsão no mesmo período em que o observado tem dados.")
+    if event is not None and pt.hourly is not None and len(pt.hourly):
+        from tempestas.report.maps import hyetograph
+
+        png = hyetograph(pt.hourly, event[0], event[1], fig_dir / f"{slug}_horario.png",
+                         title=f"{pt.name}: chuva hora a hora nas estações mais próximas")
+        if png:
+            doc.add_picture(str(png), width=Cm(16))
+            doc.add_paragraph("Horário em UTC (horário de Brasília = UTC − 3 h). Barras: chuva em cada hora; "
+                              "linha laranja: acumulado no período.")
 
 
 def build_monthly_report(

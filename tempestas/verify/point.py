@@ -40,6 +40,7 @@ class PointResult:
     satellite: pd.DataFrame               # dia × produto (mm/dia)
     stations: pd.DataFrame                # dia, rede, codigo, estacao, dist_km, precip_mm (dia UTC, só dias completos)
     skipped: dict[str, str] = field(default_factory=dict)
+    hourly: pd.DataFrame | None = None    # chuva horária das estações próximas (time_utc, rede, codigo, estacao, dist_km, precip_mm)
 
     def network_daily(self) -> pd.DataFrame:
         """Média diária por rede (estações com o dia completo)."""
@@ -91,7 +92,7 @@ def point_analysis(
             skipped[prod] = str(exc)
     satellite = pd.DataFrame(sat)
 
-    frames, metas = [], []
+    frames, metas, hourlies = [], [], []
     for network, reader in _READERS.items():
         try:
             hourly = pd.concat([reader(cfg, y) for y in range(start.year, end.year + 1)], ignore_index=True)
@@ -112,6 +113,9 @@ def point_analysis(
         dist = near.groupby("codigo")["dist_km"].first()
         metas.append(near.groupby("codigo")[["lat", "lon"]].first().reset_index().assign(rede=network))
         d["dist_km"] = d["codigo"].map(dist)
+        h = near[(near["time_utc"] > pd.Timestamp(start, tz="UTC")) &
+                 (near["time_utc"] <= pd.Timestamp(end, tz="UTC") + pd.Timedelta(days=1))]
+        hourlies.append(h[["time_utc", "codigo", "estacao", "dist_km", "precip_mm"]].assign(rede=network))
         d["dia"] = d["dia"].dt.date
         d.insert(0, "rede", network)
         frames.append(d[["dia", "rede", "codigo", "estacao", "dist_km", "precip_mm"]])
@@ -127,6 +131,8 @@ def point_analysis(
             names = sorted(tot.loc[dead, "codigo"].astype(str))
             skipped["pluviômetros descartados"] = f"{len(bad)} com chuva muito abaixo das vizinhas: " + ", ".join(names)
             frames = [f[~f.apply(lambda r: (r["rede"], r["codigo"]) in bad, axis=1)] for f in frames]
+            hourlies = [h[~h.apply(lambda r: (r["rede"], r["codigo"]) in bad, axis=1)] for h in hourlies]
     stations = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
         columns=["dia", "rede", "codigo", "estacao", "dist_km", "precip_mm"])
-    return PointResult(name, lat, lon, radius_km, start, end, members, satellite, stations, skipped)
+    hourly = pd.concat(hourlies, ignore_index=True) if hourlies else None
+    return PointResult(name, lat, lon, radius_km, start, end, members, satellite, stations, skipped, hourly)

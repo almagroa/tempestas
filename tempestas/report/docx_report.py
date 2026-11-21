@@ -223,7 +223,7 @@ def build_event_report(
                        widths=[2.4, 2.2, 2.6, 1.6, 3.2, 2.2, 2.4])
             _event_probabilistic(doc, ensemble, result, obs_ref, 1, period, fig_dir)
         for pt in points or []:
-            _point_section(doc, pt, obs_ref, fig_dir)
+            _point_section(doc, pt, obs_ref, fig_dir, event=(result.start, result.end))
 
     if result.inventory is not None and len(result.inventory):
         _heading(doc, f"{sec}. Rede de estações")

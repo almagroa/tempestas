@@ -140,9 +140,10 @@ def stations_period_max(cfg: Config, start: date, end: date) -> pd.DataFrame:
     data = cfg.paths["work_dir"] / "dados"
 
     for year in range(start.year, end.year + 1):
-        f = data / "INMET" / f"INMET_RS_{year}.csv"
-        if f.exists():
-            df = pd.read_csv(f)
+        from tempestas.io.stations import _inmet_year
+
+        df = _inmet_year(cfg, year)  # inclui os CSVs baixados à mão (dados/INMET/manual)
+        if len(df):
             if not {"wind_ms", "gust_ms"} <= set(df.columns):
                 continue
             df["time_utc"] = pd.to_datetime(df["time_utc"], utc=True)
